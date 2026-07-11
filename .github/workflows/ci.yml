@@ -5,10 +5,26 @@ on:
     branches: [main, master]
   pull_request:
     branches: [main, master]
+  workflow_dispatch:
 
 jobs:
-  test:
+  unit:
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - name: Unit tests
+        run: npx playwright test --project=unit
+
+  integration:
     timeout-minutes: 30
+    needs: unit
     strategy:
       fail-fast: false
       matrix:
@@ -55,7 +71,7 @@ jobs:
       - run: npm run build
       - name: Install Playwright
         run: npx playwright install --with-deps chromium
-      - name: Run tests
+      - name: Integration + E2E tests
         env:
           TEST_HAS_CLAUDE: 'true'
           TEST_LOCAL_PRESET: cchub
