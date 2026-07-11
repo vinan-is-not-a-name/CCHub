@@ -38,6 +38,7 @@ test.describe('detectAppPath', () => {
   });
 
   test('falls back to Program Files\\NetSarang scan when `where` returns null', async () => {
+    if (process.platform !== 'win32') return;
     // Default install: NetSarang\Xshell 8\Xshell.exe under Program Files.
     // The scan globs the version-suffixed directory so 7 / 8 / 9 all match.
     const result = await detectAppPath('xshell', fakeDeps({
@@ -49,6 +50,7 @@ test.describe('detectAppPath', () => {
   });
 
   test('also checks Program Files (x86)\\NetSarang', async () => {
+    if (process.platform !== 'win32') return;
     // 32-bit NetSarang on 64-bit Windows lands under (x86). Same scan pattern.
     const result = await detectAppPath('xftp', fakeDeps({
       readdir: (dir) => dir === 'C:\\Program Files (x86)\\NetSarang' ? ['Xftp 7'] : [],
@@ -58,6 +60,7 @@ test.describe('detectAppPath', () => {
   });
 
   test('is case-insensitive on the directory prefix — Xshell / xshell / XSHELL all match', async () => {
+    if (process.platform !== 'win32') return;
     // NetSarang keeps title-case, but drive imaging + rename tools sometimes
     // lower-case directories; matching case-insensitively means those users
     // aren't stuck on manual paths.
@@ -141,6 +144,7 @@ test.describe('detectAppPath — vscode', () => {
   });
 
   test('falls back to Program Files\\Microsoft VS Code\\bin\\code.cmd when PATH misses', async () => {
+    if (process.platform !== 'win32') return;
     const result = await detectAppPath('vscode', fakeDeps({
       exists: (p) => p === 'C:\\Program Files\\Microsoft VS Code\\bin\\code.cmd',
     }));
@@ -148,6 +152,7 @@ test.describe('detectAppPath — vscode', () => {
   });
 
   test('also checks the per-user AppData\\Local\\Programs install location', async () => {
+    if (process.platform !== 'win32') return;
     // The "Install for current user" installer lands VS Code under
     // %LOCALAPPDATA%\Programs\Microsoft VS Code — no admin rights needed
     // during install, which is the more common flow at BYOD shops.

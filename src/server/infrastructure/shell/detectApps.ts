@@ -90,6 +90,11 @@ export async function detectAppPath(app: DetectableApp, deps: DetectDeps = liveD
   const onPath = await deps.where(exe);
   if (onPath && deps.exists(onPath)) return onPath;
 
+  // Program Files / AppData scans are Windows-only; on POSIX a `where` miss
+  // means the app isn't available (Xshell/XFTP don't exist, VS Code is found
+  // via `which code` by the caller's `where` fake or real PATH lookup).
+  if (process.platform !== 'win32') return null;
+
   if (app === 'vscode') return scanVscode(deps);
 
   const prefix = app === 'xshell' ? 'Xshell' : 'Xftp';
