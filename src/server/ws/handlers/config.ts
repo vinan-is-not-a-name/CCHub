@@ -138,6 +138,7 @@ function savePreset(store: ConfigService, p: PresetWriteRequest): SafeConfigSnap
     resume: p.resume,
     skipPermissions: p.skipPermissions,
     proxyId: p.proxyId,
+    effort: p.effort,
   });
 }
 

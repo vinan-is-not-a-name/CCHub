@@ -157,6 +157,7 @@ export class ConfigService {
       resume: source.resume,
       skipPermissions: source.skipPermissions,
       proxyId: source.proxyId,
+      effort: source.effort,
     });
     return { config, selectedId: copiedId(config.presets, name) };
   }

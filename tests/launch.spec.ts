@@ -126,4 +126,20 @@ test.describe('resolveLaunch', () => {
     const r = resolveLaunch({ presetId: 'pre' }, svc);
     expect(r.skipPermissions).toBe(true);
   });
+
+  test('passes effort through from the preset', () => {
+    const local = localServer('local');
+    const pre = preset('pre', { serverId: 'local', cwd: '/work', effort: 'medium' });
+    const svc = makeService({ servers: [local], presets: [pre], defaults: { presetId: 'pre' } });
+    const r = resolveLaunch({ presetId: 'pre' }, svc);
+    expect(r.effort).toBe('medium');
+  });
+
+  test('effort is undefined when preset has none', () => {
+    const local = localServer('local');
+    const pre = preset('pre', { serverId: 'local', cwd: '/work' });
+    const svc = makeService({ servers: [local], presets: [pre], defaults: { presetId: 'pre' } });
+    const r = resolveLaunch({ presetId: 'pre' }, svc);
+    expect(r.effort).toBeUndefined();
+  });
 });

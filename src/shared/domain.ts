@@ -77,6 +77,8 @@ export interface LaunchPreset {
   skipPermissions?: boolean;
   /** References a ProxyConfig by id. Resolved to a tunnel only for SSH targets. */
   proxyId?: string;
+  /** Optional `/effort` level auto-submitted to Claude Code on session start. */
+  effort?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -103,6 +105,9 @@ export interface ResolvedLaunch {
    * for local). The connector establishes the tunnel; the proxy env is already
    * baked into `env` by then. */
   proxy?: ProxyTunnel;
+  /** Preset's effort level — written to the PTY as `/effort <value>` after
+   * the channel spawns so Claude Code picks it up on first prompt. */
+  effort?: string;
   serverName: string;
   profileName?: string;
   presetName?: string;

@@ -40,6 +40,7 @@ export function buildPreset(
     resume: cleanOptional(input.resume) as 'continue' | undefined,
     skipPermissions: input.skipPermissions === true || undefined,
     proxyId: cleanOptional(input.proxyId),
+    effort: cleanOptional(input.effort),
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
   };

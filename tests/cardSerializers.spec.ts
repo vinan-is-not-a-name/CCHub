@@ -54,6 +54,7 @@ const presetForm: PresetFormValues = {
   resume: 'continue',
   skipPermissions: false,
   proxyId: '',
+  effort: '',
 };
 
 const proxyForm: ProxyFormValues = {
@@ -222,6 +223,13 @@ test.describe('buildPresetSaveMessage', () => {
     const msg = buildPresetSaveMessage({ ...presetForm, skipPermissions: true, proxyId: 'px1' }, { editing: false, selectedId: '' });
     expect(msg.preset.skipPermissions).toBe(true);
     expect(msg.preset.proxyId).toBe('px1');
+  });
+
+  test('effort passes through when set, undefined when empty', () => {
+    const withEffort = buildPresetSaveMessage({ ...presetForm, effort: 'medium' }, { editing: false, selectedId: '' });
+    expect(withEffort.preset.effort).toBe('medium');
+    const withoutEffort = buildPresetSaveMessage({ ...presetForm, effort: '' }, { editing: false, selectedId: '' });
+    expect(withoutEffort.preset.effort).toBeUndefined();
   });
 });
 

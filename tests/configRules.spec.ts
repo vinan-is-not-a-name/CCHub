@@ -154,6 +154,17 @@ test.describe('buildPreset — reference validation', () => {
     expect(out.skipPermissions).toBeUndefined();
     expect(out.proxyId).toBeUndefined();
   });
+
+  test('stores effort when supplied, omits when blank', () => {
+    const withEffort = buildPreset(
+      { name: 'P', serverId: 'srv', cwd: '/c', effort: 'medium' }, undefined, allRefs, now,
+    );
+    expect(withEffort.effort).toBe('medium');
+    const withoutEffort = buildPreset(
+      { name: 'P', serverId: 'srv', cwd: '/c', effort: '' }, undefined, allRefs, now,
+    );
+    expect(withoutEffort.effort).toBeUndefined();
+  });
 });
 
 test.describe('buildProxy', () => {

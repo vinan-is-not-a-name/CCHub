@@ -43,6 +43,7 @@ export interface PresetFormValues {
   resume: string;
   skipPermissions: boolean;
   proxyId: string;
+  effort: string;
 }
 
 export interface ProxyFormValues {
@@ -108,6 +109,7 @@ export function buildPresetSaveMessage(form: PresetFormValues, ctx: CardContext)
     resume: (form.resume as 'continue' | '') || undefined,
     skipPermissions: form.skipPermissions || undefined,
     proxyId: form.proxyId || undefined,
+    effort: form.effort || undefined,
   }};
 }
 

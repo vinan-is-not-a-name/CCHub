@@ -15,6 +15,7 @@ function readPresetForm(): PresetFormValues {
     resume: val('preset-resume'),
     skipPermissions: checked('preset-skip-permissions'),
     proxyId: val('preset-proxy'),
+    effort: val('preset-effort'),
   };
 }
 
@@ -43,9 +44,10 @@ export function mountPresetCard(deps: AppDeps) {
       setVal('preset-resume', p.resume ?? 'continue');
       setChecked('preset-skip-permissions', p.skipPermissions === true);
       setVal('preset-proxy', p.proxyId);
+      setVal('preset-effort', p.effort);
       // Surface the advanced block when it carries non-default values so an
       // editor sees what's set without having to hunt for the collapsed section.
-      setAdvancedOpen(p.skipPermissions === true || Boolean(p.proxyId));
+      setAdvancedOpen(p.skipPermissions === true || Boolean(p.proxyId) || Boolean(p.effort));
       updateTarget(p.condaEnv);
     },
     resetForm: () => {
@@ -58,6 +60,7 @@ export function mountPresetCard(deps: AppDeps) {
       setVal('preset-resume', 'continue');
       setChecked('preset-skip-permissions', false);
       setVal('preset-proxy', '');
+      setVal('preset-effort', '');
       setAdvancedOpen(false);
       updateTarget();
     },

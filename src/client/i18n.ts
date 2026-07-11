@@ -193,6 +193,7 @@ const en: Dict = {
   'preset.advanced': 'Advanced',
   'preset.skipPermissions': 'Skip permission prompts (--dangerously-skip-permissions)',
   'preset.proxy': 'Proxy',
+  'preset.effort': 'Effort',
   'preset.delete': 'Delete',
 
   'settings.title': 'Settings',
@@ -404,6 +405,7 @@ const zh: Dict = {
   'preset.advanced': '高级',
   'preset.skipPermissions': '跳过权限提示 (--dangerously-skip-permissions)',
   'preset.proxy': '代理',
+  'preset.effort': 'Effort 等级',
   'preset.delete': '删除',
 
   'settings.title': '设置',

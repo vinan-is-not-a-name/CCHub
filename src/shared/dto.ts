@@ -81,6 +81,7 @@ export interface PresetWriteRequest {
   resume?: 'continue';
   skipPermissions?: boolean;
   proxyId?: string;
+  effort?: string;
 }
 
 export interface ProxyWriteRequest {

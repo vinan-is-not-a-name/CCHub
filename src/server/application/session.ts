@@ -111,6 +111,10 @@ export class ManagedSession extends EventEmitter {
     // resolved launch env is already a per-session object (launch.ts buildEnv),
     // so CCHUB_SESSION_ID never touches process.env or any other session.
     const env = ctx.mcp ? { ...ctx.launch.env, ...ctx.mcp.env } : ctx.launch.env;
+    // CLAUDE_CODE_EFFORT_LEVEL env var is the canonical way to set CC's
+    // effort level — it has the highest priority and takes effect at
+    // process start, avoiding the fragility of PTY-injected /effort.
+    if (ctx.launch.effort) env['CLAUDE_CODE_EFFORT_LEVEL'] = ctx.launch.effort;
     const mcpConfigPath = ctx.mcp?.configPath;
     const base: EffectiveLaunch = { ...ctx.launch, env, command: [], mcpConfigPath };
     this.effectiveLaunch = { ...base, command: cli.buildCommand({ ...base, mcpConfigPath }) };
