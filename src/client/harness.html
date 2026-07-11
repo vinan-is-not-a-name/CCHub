@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CCHub — Render Harness</title>
+  <link rel="icon" href="data:,">
+  <!-- harness.css is the esbuild-bundled xterm.css for the harness entry; -->
+  <!-- style.css is the SAME stylesheet the app ships. No test-only CSS. -->
+  <link rel="stylesheet" href="./harness.css">
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <!-- Faithful copy of index.html's sizing skeleton: #app's 56px/1fr grid +
+       the 280px/1fr workspace-shell give #terminal-container the exact box it
+       has in production, so render measurements match the real app. -->
+  <div id="app">
+    <header class="chrome-topbar"></header>
+    <main class="workspace-shell">
+      <aside class="session-rail" aria-label="Sessions">
+        <div class="rail-header"><h2>Sessions</h2></div>
+        <div id="tabs" aria-label="Sessions"></div>
+      </aside>
+      <section class="terminal-card" aria-label="Claude Code terminal">
+        <div id="terminal-container"></div>
+      </section>
+    </main>
+  </div>
+  <script type="module" src="./harness.js"></script>
+</body>
+</html>

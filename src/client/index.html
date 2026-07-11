@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CCHub</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="./main.css">
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <div id="app">
+    <header class="chrome-topbar">
+      <div class="app-brand" aria-label="CCHub">
+        <span class="brand-mark">C</span>
+        <span class="brand-name">CCHub</span>
+        <span id="connection-badge" class="connection-badge connecting">connecting</span>
+        <div id="resource-monitor" class="resource-monitor" hidden></div>
+      </div>
+      <div id="layout-host" class="topbar-seg"></div>
+      <label class="toolbar-field font-field">
+        <span data-i18n="topbar.size">Size</span>
+        <select id="font-scale" title="Terminal font size" aria-label="Terminal font size"></select>
+      </label>
+      <label class="toolbar-field theme-field">
+        <span data-i18n="topbar.theme">Theme</span>
+        <select id="theme-select" title="Terminal theme" aria-label="Terminal theme"></select>
+      </label>
+      <div class="topbar-spacer"></div>
+      <div class="toolbar-actions">
+        <div class="new-split" id="new-split">
+          <button id="new-session" class="primary-button new-main" data-i18n="topbar.new" data-i18n-title="topbar.new.aria" data-i18n-aria-label="topbar.new.aria">+ New</button>
+          <button id="new-menu-toggle" class="primary-button new-caret" data-i18n-title="topbar.recent.aria" data-i18n-aria-label="topbar.recent.aria" aria-haspopup="menu" aria-expanded="false" aria-controls="new-menu">▾</button>
+          <div id="new-menu" class="new-menu" role="menu" data-i18n-aria-label="topbar.recent.aria" hidden></div>
+        </div>
+        <button id="config-button" class="secondary-button" data-i18n="topbar.presetsConfig">Presets Config</button>
+        <button id="settings-button" class="secondary-button" data-i18n="topbar.settings" data-i18n-title="topbar.settings.title">Settings</button>
+      </div>
+    </header>
+
+    <main class="workspace-shell">
+      <aside class="session-rail" aria-label="Sessions">
+        <div class="rail-header">
+          <h2 data-i18n="rail.sessions">Sessions</h2>
+        </div>
+        <div id="tabs" aria-label="Sessions"></div>
+      </aside>
+
+      <section class="terminal-card" aria-label="Claude Code terminal">
+        <div id="terminal-container"></div>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="launch-dialog" class="app-dialog launch-dialog">
+    <form method="dialog" class="dialog-form">
+      <header class="dialog-header">
+        <div>
+          <h2 data-i18n="launch.title">Launch session</h2>
+          <p data-i18n="launch.subtitle">Start Claude Code from config.</p>
+        </div>
+        <button class="dialog-close icon-button" value="cancel" data-i18n-aria-label="launch.close" aria-label="Close launch dialog">×</button>
+      </header>
+      <div class="launch-grid">
+        <label class="field"><span data-i18n="launch.preset">Preset</span> <select id="launch-preset"></select></label>
+        <label class="field"><span data-i18n="launch.server">Server</span> <select id="launch-server"></select></label>
+        <label class="field"><span data-i18n="launch.profile">Profile</span> <select id="launch-profile"></select></label>
+      </div>
+      <div class="section-label" data-i18n="launch.overrides">Overrides</div>
+      <div class="launch-grid overrides-grid">
+        <label class="field span-2"><span data-i18n="launch.cwd">Working directory</span>
+          <span class="input-with-action"><input id="launch-cwd" autocomplete="off"><button id="launch-browse" class="secondary-button" value="default" type="button" data-i18n="launch.browse">Browse</button></span>
+        </label>
+        <label class="field"><span data-i18n="launch.conda">Conda env</span> <select id="launch-conda"><option value="" data-i18n="launch.condaNone">No conda env</option></select></label>
+        <label class="field"><span data-i18n="launch.resume">Resume</span> <select id="launch-resume"><option value="" data-i18n="launch.resumeNew">New session</option><option value="continue" selected data-i18n="launch.resumeContinue">Continue latest</option></select></label>
+      </div>
+      <menu class="dialog-actions">
+        <button id="launch-create" class="primary-button" value="default" data-i18n="launch.create">Create session</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <dialog id="directory-dialog" class="app-dialog directory-dialog">
+    <form method="dialog" class="dialog-form directory-form">
+      <header class="dialog-header">
+        <div>
+          <h2 data-i18n="directory.title">Select directory</h2>
+          <p id="directory-target" data-i18n="directory.subtitle">Choose working directory.</p>
+        </div>
+        <button class="dialog-close icon-button" value="cancel" data-i18n-aria-label="directory.close" aria-label="Close directory dialog">×</button>
+      </header>
+      <div class="directory-picker">
+        <div class="directory-toolbar">
+          <button id="directory-up" class="secondary-button" type="button" data-i18n="directory.up">Up</button>
+          <input id="directory-path" autocomplete="off" data-i18n-aria-label="directory.pathAria" aria-label="Directory path">
+          <button id="directory-go" class="secondary-button" type="button" data-i18n="directory.go">Go</button>
+        </div>
+        <div id="directory-list" class="directory-list" data-i18n-aria-label="directory.listAria" aria-label="Directories"></div>
+      </div>
+      <menu class="dialog-actions">
+        <button id="directory-select" class="primary-button" value="default" data-i18n="directory.select">Select</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <dialog id="config-dialog" class="app-dialog config-dialog">
+    <form method="dialog" class="dialog-form config-form">
+      <header class="dialog-header">
+        <div>
+          <h2 data-i18n="config.title">Configuration</h2>
+          <p data-i18n="config.subtitle">Manage environment profiles, connection targets, and reusable launch presets.</p>
+        </div>
+        <button class="dialog-close icon-button" value="cancel" data-i18n-aria-label="config.close" aria-label="Close configuration dialog">×</button>
+      </header>
+      <div class="tabbed-layout">
+        <nav class="tab-nav" role="tablist" aria-orientation="vertical" data-i18n-aria-label="config.sections.aria" aria-label="Configuration sections">
+          <button type="button" role="tab" class="tab-link" data-tab="llm" aria-selected="true" data-i18n="config.tab.llm">LLM Providers</button>
+          <button type="button" role="tab" class="tab-link" data-tab="server" aria-selected="false" tabindex="-1" data-i18n="config.tab.server">Servers</button>
+          <button type="button" role="tab" class="tab-link" data-tab="proxy" aria-selected="false" tabindex="-1" data-i18n="config.tab.proxy">Proxies</button>
+          <button type="button" role="tab" class="tab-link" data-tab="preset" aria-selected="false" tabindex="-1" data-i18n="config.tab.preset">Presets</button>
+        </nav>
+        <div class="tab-panels">
+        <section class="settings-card" data-tab-panel="llm" role="tabpanel">
+          <div class="card-header"><div><h3>LLM Providers</h3><p>OpenAI-compatible environment</p></div></div>
+          <label class="field"><span data-i18n="provider.select">LLM provider</span> <select class="item-list" id="profile-list" data-i18n-aria-label="provider.select.aria" aria-label="LLM providers"></select></label>
+          <div id="profile-mode" class="mode-pill" data-i18n="provider.mode.create">Create LLM provider</div>
+          <div class="two-fields two-fields--equal">
+            <label class="field"><span data-i18n="field.name">Name</span> <input id="profile-name"></label>
+            <label class="field"><span data-i18n="provider.model">Model</span> <input id="profile-model"></label>
+          </div>
+          <label class="field"><span data-i18n="provider.baseUrl">Base URL</span> <input id="profile-base-url"></label>
+          <label class="field"><span data-i18n="provider.authToken">Auth token</span> <input id="profile-auth-token" type="password"></label>
+          <div class="two-fields two-fields--equal">
+            <label class="field"><span data-i18n="provider.subagentModel">Subagent model</span> <input id="profile-subagent-model"></label>
+            <label class="field"><span data-i18n="provider.smallModel">Small fast model</span> <input id="profile-small-model"></label>
+          </div>
+          <label class="check-field"><input id="profile-clear-token" type="checkbox"> <span data-i18n="provider.clearToken">Clear saved token</span></label>
+          <button id="profile-test" class="secondary-button wide-button" type="button" data-i18n="provider.test">Test connection</button>
+          <div id="profile-test-result" class="inline-result" role="status" aria-live="polite" hidden></div>
+          <div id="profile-save-error" class="inline-result error" role="alert" hidden></div>
+          <div class="card-actions"><button id="profile-delete" class="danger-button" type="button" data-i18n="provider.delete">Delete</button><button id="profile-copy" class="secondary-button" type="button" data-i18n="config.copy">Copy</button><button id="profile-save" class="primary-button" type="button" data-i18n="provider.save.create">Create provider</button></div>
+        </section>
+        <section class="settings-card" data-tab-panel="server" role="tabpanel" hidden>
+          <div class="card-header"><div><h3>Servers</h3><p>Local or SSH target</p></div></div>
+          <label class="field"><span data-i18n="server.select">Server</span> <select class="item-list" id="server-list" data-i18n-aria-label="server.select.aria" aria-label="Servers"></select></label>
+          <div id="server-mode" class="mode-pill" data-i18n="server.mode.create">Create server</div>
+          <div class="two-fields">
+            <label class="field"><span data-i18n="field.name">Name</span> <input id="server-name"></label>
+            <label class="field"><span data-i18n="server.kind">Kind</span> <select id="server-kind"><option value="local" data-i18n="server.kind.local">Local</option><option value="ssh" data-i18n="server.kind.ssh">SSH</option></select></label>
+          </div>
+          <div class="two-fields">
+            <label class="field"><span data-i18n="server.host">Host</span> <input id="server-host"></label>
+            <label class="field small-field"><span data-i18n="server.port">Port</span> <input id="server-port" type="number" value="22"></label>
+          </div>
+          <div class="two-fields two-fields--equal">
+            <label class="field"><span data-i18n="server.os">OS</span> <select id="server-os"><option value="linux" data-i18n="server.os.linux">Linux</option><option value="windows" data-i18n="server.os.windows">Windows</option><option value="macos" data-i18n="server.os.macos">macOS</option></select></label>
+            <label class="field"><span data-i18n="server.username">Username</span> <input id="server-username"></label>
+          </div>
+          <label class="field"><span data-i18n="field.password">Password</span> <input id="server-password" type="password"></label>
+          <label class="field"><span data-i18n="server.privateKey">Private key path</span> <input id="server-key"></label>
+          <label class="check-field"><input id="server-clear-password" type="checkbox"> <span data-i18n="server.clearPassword">Clear saved password</span></label>
+          <div id="server-save-error" class="inline-result error" role="alert" hidden></div>
+          <div class="card-actions"><button id="server-delete" class="danger-button" type="button" data-i18n="server.delete">Delete</button><button id="server-copy" class="secondary-button" type="button" data-i18n="config.copy">Copy</button><button id="server-save" class="primary-button" type="button" data-i18n="server.save.create">Create server</button></div>
+        </section>
+        <section class="settings-card" data-tab-panel="proxy" role="tabpanel" hidden>
+          <div class="card-header"><div><h3>Proxies</h3><p>SSH reverse tunnel</p></div></div>
+          <label class="field"><span data-i18n="proxy.select">Proxy</span> <select class="item-list" id="proxy-list" data-i18n-aria-label="proxy.select.aria" aria-label="Proxies"></select></label>
+          <div id="proxy-mode" class="mode-pill" data-i18n="proxy.mode.create">Create proxy</div>
+          <div class="two-fields">
+            <label class="field"><span data-i18n="field.name">Name</span> <input id="proxy-name"></label>
+            <label class="field small-field"><span data-i18n="proxy.bindPort">Bind port</span> <input id="proxy-bind-port" type="number" placeholder="1080"></label>
+          </div>
+          <div class="two-fields">
+            <label class="field"><span data-i18n="proxy.host">Proxy host</span> <input id="proxy-host" placeholder="192.0.2.42"></label>
+            <label class="field small-field"><span data-i18n="proxy.port">Proxy port</span> <input id="proxy-port" type="number" placeholder="7890"></label>
+          </div>
+          <div id="proxy-save-error" class="inline-result error" role="alert" hidden></div>
+          <div class="card-actions"><button id="proxy-delete" class="danger-button" type="button" data-i18n="proxy.delete">Delete</button><button id="proxy-copy" class="secondary-button" type="button" data-i18n="config.copy">Copy</button><button id="proxy-save" class="primary-button" type="button" data-i18n="proxy.save.create">Create proxy</button></div>
+        </section>
+        <section class="settings-card" data-tab-panel="preset" role="tabpanel" hidden>
+          <div class="card-header"><div><h3>Presets</h3><p>Reusable launch setup</p></div></div>
+          <label class="field"><span data-i18n="preset.select">Preset</span> <select class="item-list" id="preset-list" data-i18n-aria-label="preset.select.aria" aria-label="Presets"></select></label>
+          <div id="preset-mode" class="mode-pill" data-i18n="preset.mode.create">Create preset</div>
+          <label class="field"><span data-i18n="field.name">Name</span> <input id="preset-name"></label>
+          <div class="two-fields two-fields--equal">
+            <label class="field"><span data-i18n="preset.server">Server</span> <select id="preset-server"></select></label>
+            <label class="field"><span data-i18n="preset.profile">Profile</span> <select id="preset-profile"></select></label>
+          </div>
+          <label class="field span-2"><span data-i18n="preset.cwd">Working directory</span>
+            <span class="input-with-action"><input id="preset-cwd"><button id="preset-browse" class="secondary-button" value="default" type="button" data-i18n="launch.browse">Browse</button></span>
+          </label>
+          <div class="two-fields">
+            <label class="field"><span data-i18n="preset.conda">Conda env</span> <select id="preset-conda"><option value="" data-i18n="launch.condaNone">No conda env</option></select></label>
+            <label class="field"><span data-i18n="preset.resume">Resume</span> <select id="preset-resume"><option value="" data-i18n="launch.resumeNew">New session</option><option value="continue" data-i18n="launch.resumeContinue">Continue latest</option></select></label>
+          </div>
+          <details id="preset-advanced" class="advanced-section span-2">
+            <summary data-i18n="preset.advanced">Advanced</summary>
+            <label class="check-field"><input id="preset-skip-permissions" type="checkbox"> <span data-i18n="preset.skipPermissions">Skip permission prompts (--dangerously-skip-permissions)</span></label>
+            <label class="field"><span data-i18n="preset.proxy">Proxy</span> <select id="preset-proxy" data-i18n-aria-label="preset.proxy" aria-label="Proxy"></select></label>
+          </details>
+          <div id="preset-save-error" class="inline-result error" role="alert" hidden></div>
+          <div class="card-actions"><button id="preset-delete" class="danger-button" type="button" data-i18n="preset.delete">Delete</button><button id="preset-copy" class="secondary-button" type="button" data-i18n="config.copy">Copy</button><button id="preset-save" class="primary-button" type="button" data-i18n="preset.save.create">Create preset</button></div>
+        </section>
+        </div>
+      </div>
+      <footer class="config-footer">
+        <p class="hint" data-i18n="config.footer">Secrets remain in your local config file and are never displayed here.</p>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog id="settings-dialog" class="app-dialog settings-dialog">
+    <form method="dialog" class="dialog-form settings-form">
+      <header class="dialog-header">
+        <div>
+          <h2 data-i18n="settings.title">Settings</h2>
+          <p data-i18n="settings.subtitle">Notifications and remote-client paths for this cchub server.</p>
+        </div>
+        <button class="dialog-close icon-button" value="cancel" data-i18n-aria-label="settings.close" aria-label="Close settings dialog">×</button>
+      </header>
+      <div class="tabbed-layout">
+        <nav class="tab-nav" role="tablist" aria-orientation="vertical" data-i18n-aria-label="settings.sections.aria" aria-label="Settings sections">
+          <button type="button" role="tab" class="tab-link" data-tab="general" aria-selected="true" data-i18n="settings.tab.general">General</button>
+          <button type="button" role="tab" class="tab-link" data-tab="notify" aria-selected="false" tabindex="-1" data-i18n="settings.tab.notify">Notifications</button>
+          <button type="button" role="tab" class="tab-link" data-tab="remote" aria-selected="false" tabindex="-1" data-i18n="settings.tab.remote">Remote clients</button>
+        </nav>
+        <div class="tab-panels">
+        <section class="settings-card" data-tab-panel="general" role="tabpanel">
+          <div class="card-header"><div><h3 data-i18n="settings.general.title">General</h3><p data-i18n="settings.general.subtitle">Interface preferences for this browser.</p></div></div>
+          <label class="field"><span data-i18n="settings.general.language">Language</span>
+            <select id="settings-locale">
+              <option value="en">English</option>
+              <option value="zh">中文</option>
+            </select>
+          </label>
+        </section>
+        <section class="settings-card" data-tab-panel="notify" role="tabpanel" hidden>
+          <div class="card-header"><div><h3>Notifications</h3><p>Browser alerts when CC finishes a turn or needs approval</p></div></div>
+          <label class="check-field"><input id="settings-notify" type="checkbox"> <span data-i18n="settings.notify.enable">Enable browser notifications</span></label>
+        </section>
+        <section class="settings-card" data-tab-panel="remote" role="tabpanel" hidden>
+          <div class="card-header"><div><h3>Remote clients</h3><p>Absolute paths to XShell / XFTP / VS Code on this server. Empty falls back to PATH lookup.</p></div></div>
+          <button id="settings-detect" class="secondary-button wide-button" type="button" data-i18n="settings.remote.detect" data-i18n-title="settings.remote.detect.title" title="Auto-detect XShell, XFTP and VS Code on this server">Auto detect</button>
+          <div class="settings-path-row">
+            <label class="field grow-field"><span data-i18n="settings.remote.xshellPath">XShell path</span> <input id="settings-xshell-path" placeholder="C:\Program Files\NetSarang\Xshell 8\Xshell.exe"></label>
+            <button id="settings-xshell-browse" class="secondary-button" type="button" data-i18n="settings.remote.browse" data-i18n-title="settings.remote.xshellBrowse" title="Browse for Xshell.exe">Browse…</button>
+          </div>
+          <div class="settings-path-row">
+            <label class="field grow-field"><span data-i18n="settings.remote.xftpPath">XFTP path</span> <input id="settings-xftp-path" placeholder="C:\Program Files\NetSarang\Xftp 8\Xftp.exe"></label>
+            <button id="settings-xftp-browse" class="secondary-button" type="button" data-i18n="settings.remote.browse" data-i18n-title="settings.remote.xftpBrowse" title="Browse for Xftp.exe">Browse…</button>
+          </div>
+          <div class="settings-path-row">
+            <label class="field grow-field"><span data-i18n="settings.remote.vscodePath">VS Code path</span> <input id="settings-vscode-path" placeholder="C:\Program Files\Microsoft VS Code\bin\code.cmd"></label>
+            <button id="settings-vscode-browse" class="secondary-button" type="button" data-i18n="settings.remote.browse" data-i18n-title="settings.remote.vscodeBrowse" title="Browse for code.cmd or Code.exe">Browse…</button>
+          </div>
+          <p id="settings-detect-status" class="hint" aria-live="polite"></p>
+        </section>
+        </div>
+      </div>
+      <footer class="config-footer">
+        <div class="card-actions">
+          <button class="secondary-button" value="cancel" type="submit" data-i18n="settings.cancel">Cancel</button>
+          <button id="settings-save" class="primary-button" type="button" data-i18n="settings.save">Save</button>
+        </div>
+      </footer>
+    </form>
+  </dialog>
+
+  <div id="toast-host" class="toast-host" aria-live="polite" aria-atomic="false"></div>
+
+  <script type="module" src="./main.js"></script>
+</body>
+</html>

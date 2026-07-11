@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  test:
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Setup SSH (ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y openssh-server
+          sudo systemctl start ssh
+          ssh-keygen -t ed25519 -f ~/.ssh/test_key -N ""
+          cat ~/.ssh/test_key.pub >> ~/.ssh/authorized_keys
+          chmod 600 ~/.ssh/authorized_keys
+          ssh-keyscan -H 127.0.0.1 >> ~/.ssh/known_hosts
+          echo "TEST_SSH_KEY_PATH=$HOME/.ssh/test_key" >> $GITHUB_ENV
+          echo "TEST_SSH_USER=$USER" >> $GITHUB_ENV
+
+      - name: Setup SSH (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
+          Start-Service sshd
+          Set-Service -Name sshd -StartupType Automatic
+          $keyDir = "$env:USERPROFILE\.ssh"
+          New-Item -ItemType Directory -Force $keyDir | Out-Null
+          ssh-keygen -t ed25519 -f "$keyDir\test_key" -N '""'
+          $pubKey = Get-Content "$keyDir\test_key.pub"
+          Add-Content "$keyDir\authorized_keys" $pubKey
+          icacls "$keyDir\authorized_keys" /inheritance:r /grant "${env:USERNAME}:F"
+          ssh-keyscan -H 127.0.0.1 2>$null >> "$keyDir\known_hosts"
+          echo "TEST_SSH_KEY_PATH=$keyDir\test_key" >> $env:GITHUB_ENV
+          echo "TEST_SSH_USER=$env:USERNAME" >> $env:GITHUB_ENV
+
+      - run: npm ci
+      - run: npm install -g @anthropic-ai/claude-code
+      - run: npm run build
+      - name: Install Playwright
+        run: npx playwright install --with-deps chromium
+      - name: Run tests
+        env:
+          TEST_HAS_CLAUDE: 'true'
+          TEST_LOCAL_PRESET: cchub
+        run: npm test -- --project=integration --project=chromium
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-report-${{ matrix.os }}
+          path: playwright-report/
+          retention-days: 30

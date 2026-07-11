@@ -1,0 +1,2068 @@
+* { box-sizing: border-box; }
+
+[hidden] {
+  display: none !important;
+}
+
+:root {
+  --app-bg: #f7f3ec;
+  --surface: #fdfbf6;
+  --surface-2: #f2ede3;
+  --surface-3: #ebe1cc;
+  --canvas: #ffffff;
+  --line: #e5ddcc;
+  --line-strong: #c9bfa9;
+  --text: #2a2620;
+  --muted: #8f8674;
+  --accent: #5a4a37;
+  --accent-2: #3d3324;
+  --success: #4a7c3a;
+  --warning: #b06e00;
+  --danger: #c14444;
+  --shadow-1: 0 1px 2px rgba(80, 60, 30, 0.05);
+  --shadow-2: 0 2px 6px rgba(80, 60, 30, 0.06), 0 1px 2px rgba(80, 60, 30, 0.04);
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --control-h: 32px;
+  --chrome-max: 1600px;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: var(--app-bg);
+  color: var(--text);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+button,
+select,
+input,
+textarea {
+  font: inherit;
+}
+
+button {
+  appearance: none;
+}
+
+body {
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+#app {
+  width: 100vw;
+  height: 100vh;
+  display: grid;
+  grid-template-rows: 52px minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.chrome-topbar {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 0 20px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+.app-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.brand-mark {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--surface);
+  font-family: "Iowan Old Style", "Charter", ui-serif, Georgia, serif;
+  font-size: 14px;
+  font-weight: 600;
+  flex: 0 0 auto;
+}
+
+.brand-name {
+  font-family: "Iowan Old Style", "Charter", ui-serif, Georgia, serif;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -0.005em;
+  white-space: nowrap;
+}
+
+/* Layout toggle sits in the left cluster right after the brand — the
+ * `.topbar-spacer` below is what pushes the action buttons to the right. */
+.topbar-seg {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+/* The stretchy gap between the left cluster (brand / seg / Size / Theme)
+ * and the right action cluster. Matches the mockup's `.spacer { flex: 1 }`. */
+.topbar-spacer {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Connection status: a muted "online" style label with a colored dot marker
+   and a left divider — mirrors the mockup's brand-status pattern. Not a
+   colored pill: the color lives in the ::before dot; the text stays muted so
+   status never fights the brand for attention. */
+.connection-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 0 0 0 12px;
+  border-left: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: lowercase;
+}
+
+.connection-badge::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--line-strong);
+  flex: 0 0 auto;
+}
+
+.connection-badge.connecting::before { background: #9ca3af; }
+.connection-badge.idle::before { background: var(--success); }
+.connection-badge.processing::before { background: var(--accent); }
+.connection-badge.awaiting_approval::before { background: var(--warning); }
+.connection-badge.exited::before { background: var(--danger); }
+
+/* Resource monitor pill: sits inside .app-brand right after the connection
+   badge. Both are "cchub internal status" — same typography (11.5px / 500 /
+   --muted) and joined by a leading '·' so the eye reads
+   `已连接 · 0.0% · 78 MB` as one continuous status run. The divider that
+   used to sit BEFORE the pill has moved to AFTER it, marking the end of the
+   status cluster and the start of the topbar's "外观配置" cluster
+   (layout-toggle / font / theme). Hidden until the first `metrics.snapshot`
+   arrives so we don't flash "0% 0MB" while the ws is still handshaking. */
+.resource-monitor {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 12px 0 0;
+  border-right: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: default;
+  user-select: none;
+  font-variant-numeric: tabular-nums;
+}
+/* Leading dot between the connection badge and the metric values. Renders
+   as a flex item so gap:4 applies on both sides, matching the mid-pill '·'
+   between CPU and memory — the whole status row uses one separator style. */
+.resource-monitor::before {
+  content: '·';
+  opacity: 0.5;
+}
+.resource-monitor .rm-sep { opacity: 0.5; }
+.resource-monitor.hot { color: var(--warning, #d97706); }
+.resource-monitor.crit { color: var(--danger, #dc2626); }
+
+/* Hover popover: absolute, anchored under the pill. Uses --panel/--line
+   tokens so it reads on both light and dark themes. Kept narrow because
+   the topbar can be near the right edge; body scrolls internally if the
+   session list is long. */
+.resource-monitor .rm-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  min-width: 280px;
+  max-width: 380px;
+  max-height: 60vh;
+  overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--line, #d1d5db);
+  border-radius: 6px;
+  background: var(--panel, #ffffff);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+  color: var(--foreground, #1f2937);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.resource-monitor[hidden] { display: none; }
+.resource-monitor .rm-popover[hidden] { display: none; }
+.resource-monitor .rm-pop-title {
+  font-weight: 600;
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+.resource-monitor .rm-pop-sub {
+  font-size: 10.5px;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.resource-monitor .rm-pop-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 10px;
+  padding: 3px 0;
+  align-items: baseline;
+}
+.resource-monitor .rm-pop-row.rm-total {
+  border-top: 1px solid var(--line);
+  margin-top: 4px;
+  padding-top: 6px;
+  font-weight: 600;
+}
+/* Column-header row: same 3-column grid as the data rows, but styled as a
+   subordinate label strip. Reuses the 10.5px/muted register already used by
+   .rm-pop-sub so the popover doesn't introduce a new font-size step for
+   the sake of one row. Bottom line delimits header from data. */
+.resource-monitor .rm-pop-row.rm-header {
+  font-size: 10.5px;
+  color: var(--muted);
+  padding-bottom: 4px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--line);
+}
+.resource-monitor .rm-pop-row.rm-header .rm-pop-cpu,
+.resource-monitor .rm-pop-row.rm-header .rm-pop-mem {
+  color: inherit;
+  font-size: inherit;
+}
+.resource-monitor .rm-pop-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.resource-monitor .rm-pop-cpu,
+.resource-monitor .rm-pop-mem {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  font-size: 11px;
+  min-width: 60px;
+  text-align: right;
+}
+.resource-monitor .rm-pop-empty {
+  color: var(--muted);
+  font-style: italic;
+  padding: 4px 0;
+}
+
+.toolbar-actions {
+  display: flex;
+  flex: 0 0 auto;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+}
+
+/* Topbar Size / Theme labels — sit in the "外观配置" cluster with layout-toggle
+   and the selects, all sharing the same 13px/500 register so the whole cluster
+   reads as one visual group. Muted color separates the field label from the
+   select value (which is --text). */
+.toolbar-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* Topbar selects: paper-white background + custom v-shape arrow drawn with
+   two 45°-rotated linear-gradient triangles, so no SVG/font asset is needed
+   and the arrow color tracks --muted. font-size 13 matches the mockup's
+   compact toolbar density; height is intrinsic (no --control-h) so it slots
+   into the 52px banner without vertical whitespace. */
+#theme-select,
+#font-scale {
+  padding: 5px 26px 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background-color: var(--surface);
+  color: var(--text);
+  outline: none;
+  font-size: 13px;
+  letter-spacing: 0;
+  text-transform: none;
+  font-weight: 400;
+  appearance: none;
+  cursor: pointer;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(-45deg, transparent 50%, var(--muted) 50%);
+  background-size: 5px 5px, 5px 5px;
+  background-position: right 12px center, right 7px center;
+  background-repeat: no-repeat;
+}
+
+.dialog-form input,
+.dialog-form select,
+.item-list {
+  height: var(--control-h);
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text);
+  outline: none;
+}
+
+#theme-select {
+  min-width: 0;
+}
+
+.theme-field select { width: 150px; }
+.font-field select { width: 76px; }
+.lang-field select { width: 68px; }
+
+#theme-select:hover,
+#font-scale:hover {
+  border-color: var(--line-strong);
+}
+
+#theme-select:focus,
+#font-scale:focus {
+  border-color: var(--accent);
+}
+
+.dialog-form input:hover,
+.dialog-form select:hover,
+.item-list:hover {
+  border-color: var(--line-strong);
+  background: var(--surface-2);
+}
+
+button:focus-visible,
+select:focus-visible,
+input:focus-visible {
+  outline: 2px solid rgba(90, 74, 55, 0.35);
+  outline-offset: 2px;
+}
+
+#config-button,
+.primary-button,
+.secondary-button,
+.danger-button,
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  cursor: pointer;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+  transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+}
+
+#config-button:hover,
+.primary-button:hover,
+.secondary-button:hover,
+.danger-button:hover,
+.icon-button:hover {
+  box-shadow: var(--shadow-1);
+}
+
+/* icon-button keeps the fixed --control-h square shape (dialog close × etc). */
+.icon-button {
+  width: var(--control-h);
+  height: var(--control-h);
+  padding: 0;
+  background: var(--surface-3);
+  border-color: var(--line-strong);
+  color: var(--accent);
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 1;
+}
+
+/* Primary (New session): brown ink filled, cream text, slightly beefier
+   padding — matches the mockup .split primary rhythm (6/14 padding, 13 font,
+   weight 500). No fixed height so the padding drives the box. */
+.primary-button {
+  padding: 6px 14px;
+  background: var(--accent);
+  color: var(--surface);
+  box-shadow: 0 1px 2px rgba(90, 74, 55, 0.2);
+}
+
+.primary-button:hover {
+  background: var(--accent-2);
+}
+
+/* Secondary / Presets / Settings buttons: outline treatment with a tiny
+   microshadow — the mockup .btn. Natural height driven by 5/12 padding, no
+   forced --control-h. Text uses var(--muted) so the buttons read as chrome
+   rather than actions until hovered. */
+.secondary-button,
+#config-button {
+  padding: 5px 12px;
+  background: var(--surface);
+  border-color: var(--line);
+  color: var(--muted);
+  box-shadow: 0 1px 1px rgba(80, 60, 30, 0.03);
+}
+
+.secondary-button:hover,
+#config-button:hover {
+  background: var(--surface-2);
+  border-color: var(--line-strong);
+  color: var(--text);
+}
+
+.danger-button {
+  padding: 5px 12px;
+  background: rgba(217, 48, 37, 0.08);
+  border-color: rgba(217, 48, 37, 0.18);
+  color: var(--danger);
+}
+
+.workspace-shell {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  overflow: hidden;
+  background: var(--canvas);
+}
+
+/* Left rail: shares the topbar's warm surface, separated from the white
+   canvas on its right by a hairline border. Flush against the topbar bottom
+   and the window edge — no card treatment. */
+.session-rail {
+  min-width: 0;
+  min-height: 0;
+  background: var(--surface);
+  border: 0;
+  border-right: 1px solid var(--line);
+  border-radius: 0;
+  box-shadow: none;
+}
+/* Terminal card: transparent so the workspace-shell's white canvas shows.
+   The pane frames below carry all the visual separation. */
+.terminal-card {
+  min-width: 0;
+  min-height: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.session-rail {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
+/* Grid layouts trade the rail for screen real estate: the per-pane heads carry
+   identity + close, so the rail is redundant and just steals width. applyLayout
+   mirrors the mode onto <html data-layout>, so we collapse the rail to a single
+   column here. Switching back to `tabs` restores the two-column shell. */
+html[data-layout^="cols-"] .workspace-shell {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+html[data-layout^="cols-"] .session-rail {
+  display: none;
+}
+
+/* Rail header: micro-caps "SESSIONS" title in generous whitespace, no
+   dividing rule — the mockup keeps the rail flush against the banner and
+   lets typographic contrast do the section separation instead of a border.
+   letter-spacing 0.12em is what gives the title its editorial-column feel. */
+.rail-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 20px 10px;
+  border-bottom: 0;
+  background: transparent;
+}
+
+.rail-header h2,
+.card-header h3,
+.dialog-header h2 {
+  margin: 0;
+  line-height: 1.2;
+}
+
+.rail-header h2 {
+  font-family: Inter, -apple-system, "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.card-header p,
+.dialog-header p,
+.hint {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+/* Rail list is flush — no per-item radius, no gap. Items stack directly and
+   rely on background contrast (hover / active) for separation, per the
+   editorial-column mockup. Padding lives on each item so the hover bg reaches
+   the rail edge; the outer #tabs container just clips overflow. */
+#tabs {
+  display: flex;
+  flex-direction: column;
+  align-content: start;
+  padding: 0;
+  min-width: 0;
+  overflow: auto;
+  font-family: Inter, -apple-system, "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+}
+
+.tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  padding: 8px 20px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: grab;
+  text-align: left;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+/* Active-state indicator rail: a 2px accent stripe pinned to the item's left
+   edge via ::before. Transparent by default so hover can flip only the bg,
+   colored on .active. Sits under the drop indicator (z-index 0). */
+.tab::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  background: transparent;
+  pointer-events: none;
+}
+
+/* Tab drop indicator (rail is a vertical stack, so lines go on top/bottom).
+   With flush items and no gap, place lines flush on the item edge so the
+   accent stripe sits between adjacent tabs cleanly. */
+.tab.drop-before > .drop-line-top,
+.tab.drop-after > .drop-line-bottom {
+  /* placeholder — actual indicator uses ::after below */
+}
+.tab.drop-before::after,
+.tab.drop-after::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--accent);
+  pointer-events: none;
+  z-index: 10;
+}
+.tab.drop-before::after { top: 0; }
+.tab.drop-after::after { bottom: 0; }
+
+.tab:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.tab.active {
+  background: var(--surface-3);
+  border-color: transparent;
+  color: var(--text);
+  box-shadow: none;
+}
+
+.tab.active::before {
+  background: var(--accent);
+}
+
+/* Two-row label: primary "name" line + subordinate "meta" line (target ·
+   cwd). The name-block wraps both so ellipsis works independently per line
+   without letting the meta push the close button out. */
+.tab-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: hidden;
+}
+
+.tab-name {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tab-meta {
+  font-size: 11.5px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tab-close {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity 120ms ease, background 120ms ease, color 120ms ease;
+}
+
+.tab:hover .tab-close {
+  opacity: 1;
+}
+
+.tab-close:hover {
+  background: rgba(193, 68, 68, 0.12);
+  color: var(--danger);
+}
+
+.tab-state-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--line-strong);
+}
+
+.tab.state-idle .tab-state-dot { background: var(--success); }
+.tab.state-processing .tab-state-dot { background: var(--accent); }
+.tab.state-awaiting_approval .tab-state-dot { background: var(--warning); animation: pulse-dot 1.4s ease-in-out infinite; }
+.tab.state-exited .tab-state-dot { background: var(--danger); }
+.tab.state-connecting .tab-state-dot { background: #9ca3af; }
+
+.terminal-card {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  overflow: hidden;
+}
+
+/* The single unified terminal surface. It is ALWAYS a CSS grid so a pane is
+   always a grid item — no per-mode position juggling. `tabs` is a one-cell grid
+   (every pane shares cell 1/1; only the active one is visible); the `cols-*`
+   modes override the template to tile panes. This one container is the sole
+   sizing + clipping authority for every layout, which is what keeps terminal
+   glyphs from spilling outside their box. */
+#terminal-container {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  overflow: hidden;
+  /* Transparent so the workspace-shell's white canvas shows through. Padding
+     is applied by the grid modes only — tabs mode fills the canvas edge to
+     edge because there's only ever one visible pane, no card treatment. */
+  background: transparent;
+}
+
+.xterm {
+  width: 100% !important;
+  height: 100% !important;
+  overflow: hidden !important;
+}
+
+.xterm-viewport {
+  width: auto !important;
+  /* cc runs in alt-screen (?1049h) so it never uses xterm's scrollback —
+     the viewport's scrollbar has no meaning to the user (wheel forwards
+     to cc as mouse events, thumb-drag scrolls nothing visible). Keep
+     `overflow-y: auto` so xterm's internal scrollTop math still works,
+     but paint nothing: no track, no thumb, no reserved gutter. */
+  overflow-y: auto !important;
+  scrollbar-width: none;
+}
+.xterm-viewport::-webkit-scrollbar { display: none; }
+
+.xterm .xterm-selection { z-index: 20 !important; }
+.xterm .xterm-selection div { background-color: rgba(90, 74, 55, 0.22) !important; }
+.xterm.focus .xterm-selection div { background-color: rgba(90, 74, 55, 0.30) !important; }
+
+/* IME pin: hold the inline IME preview and helper textarea at the cc prompt
+   row during a composition. xterm's CompositionHelper writes inline
+   `style.left/top` on every cursor move and on a recursive setTimeout(0), so
+   author !important is what keeps both the visible cv and the OS-queried ta
+   rect from drifting when cc's thinking spinner pumps the PTY cursor. Coords
+   come through CSS variables set in JS so the pin adapts to font scale.
+   max-width caps the inline preview at the viewport's right edge so an
+   extra-long pinyin string can never push DOM siblings to overflow and visually
+   squeeze the surrounding layout. */
+.xterm .composition-view.cc-ime-pinned,
+.xterm .xterm-helper-textarea.cc-ime-pinned {
+  left: var(--cc-ime-left, 0px) !important;
+  top: var(--cc-ime-top, 0px) !important;
+}
+.xterm .composition-view.cc-ime-pinned {
+  max-width: var(--cc-ime-max-width, none) !important;
+  overflow: hidden !important;
+  white-space: nowrap !important;
+}
+
+/* ---- Multi-session layouts ---------------------------------------------- */
+/* tabs: every pane is stacked into the single grid cell (1/1); placeTerminal
+   toggles which one is visible. This keeps the pane a grid item (not an
+   absolute overlay) so the container's sizing/clipping always applies. */
+#terminal-container[data-layout="tabs"] > .term-pane {
+  grid-area: 1 / 1;
+}
+
+/* Grid modes tile every session at once. Column count is data-driven via the
+   --grid-cols custom property set by applyLayout(); rows auto-flow with a floor
+   so a heavy session count scrolls rather than collapsing panes to nothing.
+   Fractional columns scale proportionally with the container, which keeps the
+   layout stable under browser zoom (each terminal refits via its own
+   ResizeObserver(documentElement)). */
+#terminal-container[data-layout^="cols-"] {
+  grid-template-columns: repeat(var(--grid-cols, 2), minmax(0, 1fr));
+  grid-template-rows: none;
+  grid-auto-rows: minmax(160px, 1fr);
+  gap: 14px;
+  padding: 16px;
+  overflow: auto;
+}
+
+/* A pane in grid mode: a solid paper card that floats on the page bg — the
+   detached-pane treatment. The Aero glass is gone; focus is a subtle border +
+   lift, no accent-color ring, so nothing pulls the eye away from content. */
+.term-pane.is-grid {
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--surface);
+  box-shadow: var(--shadow-2);
+  transform: translateZ(0);
+}
+
+.term-pane.is-grid.is-active {
+  border-color: var(--line-strong);
+  box-shadow: 0 4px 12px rgba(80, 60, 30, 0.09), 0 1px 2px rgba(80, 60, 30, 0.05);
+}
+
+/* Per-pane head bar: state dot + name + close. Always in the DOM but shown
+   only in grid modes — in tabs mode the rail carries identity, so the head
+   would be redundant chrome. Real DOM (not a ::before chip) so each tiled pane
+   surfaces its own live state and an independent close button, per the
+   focus-follows-cursor model. */
+.term-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.pane-head {
+  display: none;
+}
+
+.term-pane.is-grid .pane-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  padding: 5px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-2);
+}
+
+/* Active pane's head reads as selected via warm surface-3 (accent-soft) rather
+   than an accent-color glow. Same signal, less visual pull. */
+.term-pane.is-grid.is-active .pane-head {
+  background: var(--surface-3);
+  border-bottom-color: var(--line-strong);
+}
+
+.pane-state-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--line-strong);
+}
+
+.pane-head.state-idle .pane-state-dot { background: var(--success); }
+.pane-head.state-processing .pane-state-dot { background: var(--accent); }
+.pane-head.state-awaiting_approval .pane-state-dot { background: var(--warning); animation: pulse-dot 1.4s ease-in-out infinite; }
+.pane-head.state-exited .pane-state-dot { background: var(--danger); }
+
+.pane-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+/* Subordinate paren block inside `.pane-name`: `(reveal-cwd)` wrapped as a
+   single span so the parentheses render at the smaller caption size + muted
+   color that separates them from the primary title. Matches mockup-I
+   `.pane-label`. */
+.pane-label {
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 400;
+}
+
+/* Parenthesized cwd inside a tab/pane label. Clicking it asks the server to
+   open the folder in the OS file browser. Weight-neutral (no bold) inside
+   the label so it reads as a subordinate detail; picks up on hover. In the
+   pane it lives inside `.pane-label` so it inherits the Inter caption face
+   from that wrapper; in the rail (`.tab-label .reveal-cwd`) the surrounding
+   `.tab-meta` already carries the caption styling. */
+.tab-label .reveal-cwd,
+.pane-name .reveal-cwd {
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.tab-label .reveal-cwd:hover,
+.pane-name .reveal-cwd:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+/* Popover that appears when the user clicks the cwd link on an SSH session.
+   Two options — Open in XShell / Open in XFTP. Fixed positioning so it can
+   escape the tab-label overflow clip. Rendered as a direct child of body
+   by showRevealMenu, so no nested selectors are needed. */
+.reveal-menu {
+  position: fixed;
+  z-index: 1000;
+  min-width: 160px;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-2);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.reveal-menu-item {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 13px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.reveal-menu-item:hover,
+.reveal-menu-item:focus-visible {
+  background: var(--surface-3);
+  outline: none;
+}
+
+.pane-close {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1;
+}
+
+.pane-close:hover {
+  background: rgba(193, 68, 68, 0.12);
+  color: var(--danger);
+}
+
+/* Drag-to-reorder: the pane head is the grab handle. In tabs mode the head is
+   display:none, so this cursor only appears in grid modes. The close button
+   overrides back to pointer via its own rule above. */
+.pane-head {
+  cursor: grab;
+}
+
+/* Global drag state: swallow text selection and force the grabbing hand
+   regardless of what the pointer hovers. Pane variant also disables pane-body
+   pointer events so xterm can't start its own selection or eat the drop. Rail
+   variant doesn't need that because rail drags happen inside the aside, not
+   over a terminal. */
+body.dragging-pane,
+body.dragging-tab {
+  user-select: none;
+  cursor: grabbing;
+}
+
+body.dragging-pane .pane-body {
+  pointer-events: none;
+}
+
+.is-dragging {
+  opacity: 0.4;
+  transition: opacity 0.1s ease-out;
+}
+
+/* Anchor the drop-indicator pseudo-elements. Both draggable item types
+   (.term-pane, .tab) need this. */
+.term-pane {
+  position: relative;
+}
+
+/* Grid pane drop indicator: 3px accent line on the target pane's left / right
+   edge, composed with the active-ring box-shadow via a pseudo-element. */
+.term-pane.drop-before::before,
+.term-pane.drop-after::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--accent);
+  pointer-events: none;
+  z-index: 10;
+}
+.term-pane.drop-before::before { left: 0; }
+.term-pane.drop-after::after { right: 0; }
+
+/* The terminal mounts here; it fills whatever vertical space the head leaves.
+   min-height:0 lets it shrink inside the flex column instead of overflowing. */
+.pane-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Segmented layout switcher — rounded rectangle trough (not a pill!) with
+   6px inner button radius. Matches the mockup .seg dimensions: 8/6 radius,
+   5/12 padding on buttons, 12.5px normal-weight text. The active button is a
+   cream tile with a small microshadow — same "pressed paper" motif used
+   elsewhere. */
+.layout-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  flex-shrink: 0;
+}
+
+.layout-toggle-btn {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  padding: 5px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  line-height: 1.4;
+  white-space: nowrap;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.layout-toggle-btn:hover {
+  color: var(--text);
+}
+
+.layout-toggle-btn.is-active {
+  color: var(--text);
+  background: var(--surface);
+  box-shadow: var(--shadow-1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .layout-toggle-btn { transition: none; }
+}
+
+.dialog-form button,
+.dialog-form input,
+.dialog-form select,
+.dialog-form textarea {
+  font: inherit;
+}
+
+dialog {
+  margin: auto;
+  width: min(980px, calc(100vw - 28px));
+  max-height: calc(100vh - 28px);
+  padding: 0;
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 24px 80px rgba(80, 60, 30, 0.24);
+}
+
+dialog[open] {
+  opacity: 1;
+  pointer-events: auto;
+  visibility: visible;
+}
+
+dialog::backdrop {
+  background: rgba(42, 38, 32, 0.34);
+  backdrop-filter: blur(8px);
+}
+
+.dialog-form {
+  display: grid;
+  gap: 16px;
+  width: 100%;
+  min-height: 0;
+  max-height: 100%;
+  padding: 20px;
+  overflow: auto;
+}
+
+.dialog-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.dialog-header h2 {
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.dialog-close {
+  flex: 0 0 auto;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.launch-grid,
+.two-fields {
+  display: grid;
+  gap: 12px;
+}
+
+.launch-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.two-fields {
+  grid-template-columns: minmax(0, 1fr) 120px;
+}
+
+.overrides-grid {
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.span-2 {
+  grid-column: span 2;
+}
+
+.section-label {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.field {
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+  min-width: 0;
+}
+
+.field input,
+.field select,
+.item-list {
+  width: 100%;
+  color: var(--text);
+}
+
+.input-with-action {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.input-with-action .secondary-button {
+  height: var(--control-h);
+  padding: 0 12px;
+}
+
+.suggestions {
+  display: grid;
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  box-shadow: var(--shadow-2);
+  padding: 4px;
+  position: relative;
+  z-index: 20;
+}
+
+.directory-browser-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 6px 8px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.directory-browser-header span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.directory-browser-header button {
+  background: var(--accent);
+  color: var(--surface);
+  padding: 0 10px;
+}
+
+.suggestions button {
+  min-height: 30px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  padding: 0 8px;
+  cursor: pointer;
+}
+
+.suggestions button:hover {
+  background: var(--surface-3);
+}
+
+.item-list option {
+  padding: 6px 8px;
+}
+
+.check-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.check-field input {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--accent);
+}
+
+.directory-dialog {
+  width: min(760px, calc(100vw - 28px));
+  height: min(640px, calc(100vh - 28px));
+  max-height: min(640px, calc(100vh - 28px));
+}
+
+.directory-form {
+  height: 100%;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+}
+
+.directory-picker {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 12px;
+  min-height: 0;
+}
+
+.directory-toolbar {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.directory-list {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  padding: 8px;
+}
+
+.directory-row,
+.directory-empty {
+  min-height: 34px;
+  border: 0;
+  border-radius: 8px;
+  padding: 0 10px;
+  text-align: left;
+  color: var(--text);
+  background: transparent;
+}
+
+.directory-row {
+  cursor: pointer;
+}
+
+.directory-row::before {
+  content: '▸';
+  color: var(--accent);
+  margin-right: 8px;
+}
+
+/* In file mode the picker lists both directories and files; the leading
+   glyph distinguishes them at a glance — arrow for a navigable directory,
+   dot for a selectable file. `data-kind="directory"` is the default so a
+   picker call that doesn't stamp the attribute (e.g. the drives listing)
+   keeps the original arrow marker. */
+.directory-row[data-kind="file"]::before {
+  content: '•';
+  color: var(--muted);
+}
+
+.directory-row[data-kind="file"] {
+  color: var(--muted);
+}
+
+.directory-row[data-kind="file"]:hover {
+  color: var(--text);
+}
+
+.directory-row:hover,
+.directory-row.selected {
+  background: var(--surface-3);
+}
+
+.directory-empty {
+  display: flex;
+  align-items: center;
+  color: var(--muted);
+}
+
+.config-dialog {
+  width: min(1180px, calc(100vw - 32px));
+  height: min(820px, calc(100vh - 32px));
+}
+
+/* Settings dialog — narrower + shorter than the presets Config dialog because
+   the form has only two sections (Notifications, Remote clients). */
+.settings-dialog {
+  width: min(760px, calc(100vw - 32px));
+  height: min(600px, calc(100vh - 32px));
+}
+
+/* Legacy container from the old stacked layout; the new tabbed-layout
+   replaces it. Kept as a no-op alias so any straggling references degrade
+   gracefully. */
+.settings-body {
+  display: contents;
+}
+
+/* Path input + Detect button on the same row, input flex-grows so long paths
+   remain fully editable while the button stays a consistent width. */
+.settings-path-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.settings-path-row .grow-field {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.settings-path-row .grow-field input {
+  width: 100%;
+}
+
+/* Container for transient toast messages (shell.reveal.error, save
+   confirmations). Fixed to bottom-right, ignores pointer events so it
+   never blocks the underlying UI even while a toast is fading. */
+.toast-host {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 2000;
+  pointer-events: none;
+}
+
+.toast {
+  pointer-events: auto;
+  min-width: 220px;
+  max-width: 360px;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  box-shadow: var(--shadow-2);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.4;
+  animation: toast-in 120ms ease-out;
+}
+
+.toast.error {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* Presets Config + Settings share a sidebar-tabs shell:
+   [header on warm surface] / [warm nav + white panel] / [white footer]. The
+   form owns the grid; header/tabbed-layout/footer control their own padding
+   and colour so we get a clean seam between the warm chrome (top + left) and
+   the white content area. */
+.config-form,
+.settings-form {
+  padding: 0;
+  gap: 0;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  height: 100%;
+  overflow: hidden;
+}
+
+.config-form > .dialog-header,
+.settings-form > .dialog-header {
+  padding: 18px 22px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+.config-form > .config-footer,
+.settings-form > .config-footer {
+  padding: 14px 22px;
+  background: var(--canvas);
+  border-top: 1px solid var(--line);
+}
+
+.tabbed-layout {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  min-height: 0;
+  overflow: hidden;
+  background: var(--canvas);
+}
+
+.tab-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 16px 10px;
+  background: var(--surface);
+  border-right: 1px solid var(--line);
+  overflow: auto;
+}
+
+.tab-link {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  text-align: left;
+  padding: 10px 14px 10px 17px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, box-shadow 120ms ease;
+}
+
+.tab-link:hover:not(.active) {
+  background: var(--surface-2);
+}
+
+.tab-link.active {
+  background: var(--canvas);
+  color: var(--accent);
+  font-weight: 700;
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.tab-panels {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 24px 28px;
+  background: var(--canvas);
+}
+
+[data-tab-panel][hidden] {
+  display: none !important;
+}
+
+/* Cards inside a tab panel: the panel itself is the canvas, so the card sheds
+   its own frame/shadow/padding and becomes a plain flex column of fields. */
+.tab-panels .settings-card {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  gap: 12px;
+  min-height: unset;
+}
+
+.tab-panels .card-header {
+  display: none;
+}
+
+.tab-panels .field {
+  gap: 6px;
+  color: var(--text);
+  font-weight: 700;
+}
+
+.tab-panels .check-field {
+  color: var(--text);
+}
+
+.tab-panels .two-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 140px;
+  gap: 12px;
+}
+
+.tab-panels .two-fields.two-fields--equal {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+/* Inside the tab panel, drop the pill chrome — the flat grey pill looked
+   glued onto a white panel. Reads instead as a compact accent-marked marker
+   for the fields below (create-mode vs. editing-a-specific-record). */
+.tab-panels .mode-pill {
+  padding: 5px 12px;
+  background: transparent;
+  border-radius: 0;
+  border-left: 3px solid var(--accent);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+}
+
+/* Inputs and selects inside a tab panel: switch off the warm --surface-2
+   fill from the shared dialog rules and read as white-on-white with a
+   crisp border — matches the panel background so they don't look pasted
+   from a different palette. */
+.tab-panels input,
+.tab-panels select,
+.tab-panels .item-list {
+  background: var(--canvas);
+  border-color: var(--line-strong);
+}
+
+.tab-panels input:hover,
+.tab-panels select:hover,
+.tab-panels .item-list:hover {
+  background: var(--canvas);
+  border-color: var(--accent);
+}
+
+.tab-panels input:focus,
+.tab-panels select:focus,
+.tab-panels .item-list:focus {
+  border-color: var(--accent);
+}
+
+/* Bigger, more comfortable buttons inside the two dialogs (user asked for
+   the inner buttons — not the topbar Presets/Settings triggers — to grow). */
+.config-dialog .primary-button,
+.config-dialog .secondary-button,
+.config-dialog .danger-button,
+.settings-dialog .primary-button,
+.settings-dialog .secondary-button,
+.settings-dialog .danger-button {
+  padding: 10px 18px;
+  font-size: 13.5px;
+  min-height: 40px;
+}
+
+.config-dialog .wide-button,
+.settings-dialog .wide-button {
+  min-height: 42px;
+  padding: 11px 20px;
+  font-size: 14px;
+}
+
+.config-dialog .card-actions .primary-button,
+.config-dialog .card-actions .secondary-button,
+.config-dialog .card-actions .danger-button {
+  min-width: 0;
+  padding: 0 12px;
+}
+
+.card-header {
+  display: grid;
+  gap: 4px;
+  min-height: 42px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.card-header h3 {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.card-header p {
+  margin: 0;
+  font-size: 11px;
+}
+
+.mode-pill {
+  width: fit-content;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(90, 74, 55, 0.10);
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 760;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.advanced-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.advanced-section > summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.advanced-section:not([open]) > summary {
+  margin: -10px -12px;
+  padding: 10px 12px;
+}
+
+button:disabled {
+  cursor: default;
+  opacity: 0.45;
+  box-shadow: none !important;
+}
+
+.card-actions,
+.dialog-actions,
+.config-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.card-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 0.8fr) minmax(0, 1.1fr);
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.card-actions .primary-button,
+.card-actions .secondary-button,
+.card-actions .danger-button,
+.wide-button {
+  width: 100%;
+  min-width: 0;
+  padding: 0 12px;
+}
+
+.wide-button {
+  justify-self: stretch;
+  margin-top: 2px;
+}
+
+.inline-result {
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.inline-result.info {
+  border-color: var(--line-strong);
+  color: var(--text);
+}
+
+.inline-result.error {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.config-footer {
+  justify-content: space-between;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  min-height: 28px;
+}
+
+.dialog-actions {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(234, 134, 0, 0.22); }
+  50% { box-shadow: 0 0 0 8px rgba(234, 134, 0, 0); }
+}
+
+@media (max-width: 1240px) {
+  .workspace-shell {
+    grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 980px) {
+  .chrome-topbar {
+    gap: 8px;
+  }
+
+  .launch-grid,
+  .overrides-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .span-2 {
+    grid-column: span 2;
+  }
+}
+
+@media (max-width: 760px) {
+  .workspace-shell {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .session-rail {
+    max-height: 132px;
+  }
+
+  .rail-header {
+    display: none;
+  }
+
+  #tabs {
+    display: flex;
+    gap: 8px;
+    padding: 8px;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .tab {
+    flex: 0 0 min(280px, 78vw);
+  }
+}
+
+@media (max-width: 720px) {
+  #app {
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .chrome-topbar {
+    padding: 8px;
+  }
+
+  .brand-name,
+  .toolbar-field span,
+  #config-button {
+    display: none;
+  }
+
+  .connection-badge {
+    padding: 3px 8px;
+    font-size: 9px;
+  }
+
+  .toolbar-actions {
+    gap: 6px;
+  }
+
+  .toolbar-field {
+    flex: 1 1 0;
+  }
+
+  .theme-field select,
+  .font-field select,
+  .lang-field select {
+    width: 100%;
+  }
+
+  .workspace-shell {
+    grid-template-rows: 56px minmax(0, 1fr);
+    gap: 8px;
+    padding: 8px;
+  }
+
+  .session-rail {
+    max-height: none;
+    border-radius: 12px;
+  }
+
+  #tabs {
+    padding: 7px;
+  }
+
+  .tab {
+    flex-basis: 240px;
+    height: 40px;
+  }
+
+  .terminal-card {
+    border-radius: 12px;
+  }
+
+  #terminal-container {
+    padding: 6px;
+  }
+
+  .launch-grid,
+  .overrides-grid,
+  .two-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .span-2 {
+    grid-column: auto;
+  }
+
+  .dialog-form {
+    padding: 14px;
+  }
+
+  dialog,
+  .config-dialog,
+  .launch-dialog {
+    width: calc(100vw - 16px);
+    max-height: calc(100vh - 16px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    scroll-behavior: auto !important;
+  }
+
+  .tab.state-awaiting_approval .tab-state-dot {
+    animation: none;
+  }
+
+  .tab,
+  button {
+    transition: none;
+  }
+}
+
+.image-preview {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.image-preview-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  cursor: zoom-out;
+}
+
+.image-preview-frame {
+  position: relative;
+  max-width: min(92vw, 1400px);
+  max-height: 92vh;
+  background: var(--surface);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-2);
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.image-preview-img {
+  max-width: 100%;
+  max-height: calc(92vh - 32px);
+  display: block;
+  border-radius: var(--radius-sm);
+}
+
+.image-preview-status {
+  color: var(--muted);
+  padding: 24px;
+}
+
+.image-preview-close {
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 50%;
+}
+
+.image-preview-close:hover {
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+.new-split {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+}
+
+.new-split .new-main {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  padding-right: 10px;
+}
+
+.new-split .new-caret {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-left: 1px solid rgba(253, 251, 246, 0.25);
+  padding: 0 8px;
+  font-size: 11px;
+  min-width: 22px;
+  box-shadow: 0 2px 6px rgba(90, 74, 55, 0.22);
+}
+
+.new-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 320px;
+  max-width: 480px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-2);
+  padding: 6px;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.new-menu.empty {
+  padding: 12px 14px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.new-menu .recent-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  width: 100%;
+}
+
+.new-menu .recent-item:hover,
+.new-menu .recent-item:focus-visible {
+  background: var(--surface-3);
+  outline: none;
+}
+
+.new-menu .recent-item.stale {
+  color: var(--muted);
+}
+
+.new-menu .recent-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.new-menu .recent-title {
+  font-weight: 600;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.new-menu .recent-sub {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.new-menu .recent-time {
+  font-size: 11px;
+  color: var(--muted);
+  flex: 0 0 auto;
+}
+
+.new-menu .recent-forget {
+  visibility: hidden;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  flex: 0 0 auto;
+}
+
+.new-menu .recent-item:hover .recent-forget {
+  visibility: visible;
+}
+
+.new-menu .recent-forget:hover {
+  background: var(--surface-3);
+  color: var(--danger);
+}
+
+.new-menu-sep {
+  height: 1px;
+  background: var(--line);
+  margin: 4px 6px;
+}
+
+.new-menu .recent-clear,
+.new-menu .recent-custom {
+  padding: 6px 10px;
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+
+.new-menu .recent-clear:hover,
+.new-menu .recent-custom:hover {
+  background: var(--surface-3);
+}
+
+.new-menu .recent-clear {
+  color: var(--danger);
+}

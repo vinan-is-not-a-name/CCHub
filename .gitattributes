@@ -1,0 +1,16 @@
+# Repository-wide line-ending policy: commit LF, let Git generate per-platform
+# on checkout via core.autocrlf. Keeps blame / diff / cross-OS edits clean.
+* text=auto eol=lf
+
+# Belt-and-braces binary carve-outs (text=auto already skips these).
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.tgz binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary

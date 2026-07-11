@@ -1,0 +1,26 @@
+node_modules/
+dist/
+test-stdout.txt
+test-stderr.txt
+*.tgz
+
+# Environment files
+.env*
+
+# Per-user Claude Code state (permissions, session cache) — never ship
+.claude/
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/
+/.playwright-mcp/
+
+# Dogfood/debug screenshots and snapshots (root only)
+/*.png
+/*.jpg
+/*.jpeg
+/snapshot-inner.yml
+/debug-screenshot/
