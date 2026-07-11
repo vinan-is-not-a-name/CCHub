@@ -1,9 +1,10 @@
 import { test, expect } from '@playwright/test';
 import WebSocket from 'ws';
 
-// 需要 claude 的测试通过此变量控制跳过
-// CI 中安装了 claude 后此变量设为 true
-const hasClaude = process.env.TEST_HAS_CLAUDE === 'true';
+// ANTHROPIC_API_KEY is the definitive signal on CI (injected via GitHub
+// Secrets). TEST_HAS_CLAUDE is a convenience gate for local dev where the
+// user authenticated via `claude login` rather than setting the env var.
+const hasClaude = !!process.env.ANTHROPIC_API_KEY || process.env.TEST_HAS_CLAUDE === 'true';
 
 // Tests share one cchub server across all projects (chromium → firefox → webkit).
 // Without per-test cleanup, sessions created by earlier projects leak and break

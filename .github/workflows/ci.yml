@@ -76,7 +76,7 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Integration + E2E tests
         env:
-          TEST_HAS_CLAUDE: 'true'
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           TEST_LOCAL_PRESET: cchub
         run: npm test -- --project=integration --project=chromium
       - uses: actions/upload-artifact@v4
