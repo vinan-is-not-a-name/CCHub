@@ -10,14 +10,15 @@ cchub 是一个本地 Web 服务器，把 [Claude Code](https://github.com/anthr
 
 ## 核心功能一览
 
-- **多会话统一管理** —— 一个实例里同时开任意多个 Claude Code CLI 会话，标签页或者 2/3 列网格并排，pane 可拖拽重排，WebSocket 断连后从服务端 scrollback 恢复。
+- **多会话统一管理** —— 一个实例里同时开任意多个 Claude Code CLI 会话，标签页或者 2/3 列网格并排，pane 和标签页可拖拽重排，WebSocket 断连后从服务端 scrollback 恢复。
 - **本地 + SSH 远程会话** —— 一个实例同时驱动本机 `claude` 和任意数量 SSH 主机上的 `claude`，走同一条 WebSocket 管道。
 - **TUI 到 Web 完整映射** —— xterm.js 直连真实 PTY：键盘透传、鼠标追踪（可点击 slash 菜单）、bracketed paste、alt-screen、IME。
-- **第三方 LLM 供应商** —— Anthropic、OpenRouter、本地 LiteLLM、Ollama，任何 OpenAI 兼容端点。
-- **CLI 配置搬到 UI** —— 主模型、子代理模型、`--dangerously-skip-permissions`、续接模式，全部打包成 preset。
+- **第三方 LLM 供应商** —— Anthropic、OpenRouter、本地 LiteLLM、Ollama，任何 OpenAI 兼容或 Anthropic 格式端点。
+- **CLI 配置搬到 UI** —— 主模型、子代理模型、轻量模型、`--dangerously-skip-permissions`、续接模式，全部打包成 preset；可配置 HTTP 代理用于出站 API 调用。
 - **外部工具集成** —— 把工作目录交给 VS Code、XShell、XFTP、cmd、PowerShell，各自做各自最擅长的事。
-- **任务完成通知** —— 会话从 processing 回到 idle 且你没在看时触发浏览器桌面通知（启发式、尽力而为）。
+- **Hook 驱动通知** —— Claude Code hooks 发送权威的 idle/prompt/stop 事件；会话空闲或需要审批而你不在看时，触发浏览器桌面通知。
 - **补强读图能力** —— MCP `feed_image` 工具绕开 [anthropics/claude-code#18588](https://github.com/anthropics/claude-code/issues/18588)，让 CLI 读本地图片，或者让浏览器自动化 agent 自截自看。
+- **国际化 + 主题** —— 中英文界面；150+ 终端配色主题；字体缩放。
 
 ## 功能文档
 
@@ -37,7 +38,7 @@ cchub 是一个本地 Web 服务器，把 [Claude Code](https://github.com/anthr
 
 ### 第三方 LLM API 管理
 
-Profile 是一等对象：每个 profile 带 `baseUrl` / `authToken` / `model`，Settings 对话框在保存前会先探测端点（`POST /v1/chat/completions` 发一个 token 的 ping），以便及早暴露配置错误。任何 OpenAI 兼容端点都能用 —— Anthropic 官方 API、OpenRouter、本地 LiteLLM、Ollama，都行。Profile 与 preset 解耦：换 preset 用的 API 不需要重建 preset。环境变量遵循 CLI 惯例（`ANTHROPIC_BASE_URL`、`ANTHROPIC_AUTH_TOKEN`、`ANTHROPIC_MODEL`），cchub 不引入任何私有协议。
+Profile 是一等对象：每个 profile 带 `name` / `baseUrl` / `authToken` / `model` / `subagentModel` / `smallFastModel`，Config 对话框在保存前会先探测端点（含 `/anthropic` 路径的 URL 用原生 Anthropic `POST /v1/messages`，OpenAI 兼容端点用 `POST /v1/chat/completions` 发一个 token 的 ping），以便及早暴露配置错误。任何 OpenAI 兼容端点都能用 —— Anthropic 官方 API、OpenRouter、本地 LiteLLM、Ollama，都行。Profile 与 preset 解耦：换 preset 用的 API 不需要重建 preset。环境变量遵循 CLI 惯例（`ANTHROPIC_BASE_URL`、`ANTHROPIC_AUTH_TOKEN`、`ANTHROPIC_MODEL`），cchub 不引入任何私有协议。
 
 ![Profile 编辑器带 base URL、auth token、model 字段](docs/screenshots/profile-editor.png)
 
@@ -60,9 +61,9 @@ cchub 有意不去做文件编辑器、SFTP 客户端或 Windows 终端。你需
 
 ![Reveal 菜单包含文件浏览器 / VS Code / cmd / PowerShell 入口](docs/screenshots/reveal-menu.png)
 
-### 任务完成通知（尽力而为）
+### Hook 驱动通知
 
-当一个会话从 processing 回到 idle 而你没在看它时，cchub 可以触发浏览器桌面通知。判定依赖对终端输出的字符启发式分析（而不是任何来自 Claude 的结构化事件），**它会误报，偶尔也会漏报**。长时间的批量命令可能中途看起来像 idle；CLI spinner 的格式变化会绕过检测器。Settings 里有开关（默认关闭）。长远方案是接 Claude Code 的 hook 或结构化完成事件，在那之前这个能用，但别指望它承担关键路径。
+cchub 为每个会话自动配置 Claude Code hooks（`Notification`、`Stop`、`StopFailure`）。`Notification` hook 在 `idle_prompt` / `permission_prompt` 时触发，提醒你会话需要关注；`Stop` 和 `StopFailure` 在轮次结束时触发。当 hook 触发且你没在看该会话时，cchub 会弹出浏览器桌面通知。对于远程（SSH）会话，hook 端点通过 SSH 隧道回传，通知同样生效。Settings 里有开关（"通知 / Notifications"），默认关闭。
 
 ![通知设置面板](docs/screenshots/settings-notifications.png)
 
@@ -81,7 +82,7 @@ Claude Code CLI 目前无法在终端里原生读取图片（见 [anthropics/cla
 
 - Node.js **≥ 18**
 - [Claude Code CLI](https://github.com/anthropics/claude-code)（`npm install -g @anthropic-ai/claude-code`）
-- Windows
+- Windows（核心终端 + SSH 跨平台可用；外部工具唤起 —— cmd、PowerShell、XShell、XFTP —— 仅限 Windows）
 
 ## 安装与启动
 
@@ -109,12 +110,12 @@ SSH 负责认证和传输加密，不需要对外开放端口。
 
 ## 配置
 
-配置是一个 JSON 文件：`~/.cchub/config.json`（Windows：`%USERPROFILE%\.cchub\config.json`）。应用里的 Settings 与 Presets Config 对话框会代你编辑它。字段：
+配置是一个 JSON 文件：`~/.cchub/config.json`（Windows：`%USERPROFILE%\.cchub\config.json`）。Config 对话框有四个标签页 —— LLM 供应商、服务器、代理、预设 —— 每个都支持新建 / 编辑 / 复制 / 删除。字段：
 
+- **profiles** —— 可复用的 LLM 供应商配置：`baseUrl`、`authToken`、`model`、`subagentModel`、`smallFastModel`，可选 proxy 引用。
 - **servers** —— 本地或 SSH 目标。SSH 目标带 host / port / username / auth（密码或私钥路径）。
-- **profiles** —— 可复用的 provider 配置：`baseUrl`、`authToken`、`model`，可选 proxy 引用。
+- **proxies** —— HTTP 代理定义，用于出站 Claude API 调用（cchub 侧 bind 端口，转发到上游代理；SSH 会话经反向隧道使用）。
 - **presets** —— 命名的启动配置（server + profile + cwd + 续接模式）。顶栏「+ 新建会话」按 preset 建会话。
-- **proxies** —— 可选的出站 HTTP proxy 定义，SSH 会话经反向隧道使用。
 
 ## 开发
 

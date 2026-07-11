@@ -10,14 +10,15 @@ cchub is a local web server that hosts the [Claude Code](https://github.com/anth
 
 ## Features at a glance
 
-- **Multi-session management** — an arbitrary number of Claude Code CLI sessions in tabs or a 2- / 3-column grid; drag panes to reorder; a dropped WebSocket rehydrates state from server-side scrollback.
+- **Multi-session management** — an arbitrary number of Claude Code CLI sessions in tabs or a 2- / 3-column grid; drag panes and tabs to reorder; a dropped WebSocket rehydrates state from server-side scrollback.
 - **Local + SSH remote sessions** — one instance drives `claude` on the local box and on any number of SSH hosts, all through the same WebSocket pipeline.
 - **Full TUI-to-Web mapping** — xterm.js against a real PTY: keyboard passthrough, mouse tracking (click Claude Code's slash menu), bracketed paste, alt-screen, IME.
-- **Third-party LLM providers** — Anthropic, OpenRouter, a local LiteLLM, Ollama, any OpenAI-compatible endpoint.
-- **CLI config in the UI** — main model, subagent model, `--dangerously-skip-permissions`, resume mode, all as a preset.
+- **Third-party LLM providers** — Anthropic, OpenRouter, a local LiteLLM, Ollama, any OpenAI-compatible or Anthropic-format endpoint.
+- **CLI config in the UI** — main model, subagent model, small-fast model, `--dangerously-skip-permissions`, resume mode, all as a preset; configurable HTTP proxies for outbound API calls.
 - **External tool handoff** — hand the working directory to VS Code, XShell, XFTP, cmd, or PowerShell; each does what it's best at.
-- **Task-completion notifications** — browser desktop notifications when a session goes idle unattended (heuristic, best-effort).
+- **Hook-driven notifications** — Claude Code hooks fire authoritative idle/prompt/stop events; browser desktop notifications when a session goes idle or needs approval while you're away.
 - **Image feed for Claude Code** — an MCP `feed_image` tool works around [anthropics/claude-code#18588](https://github.com/anthropics/claude-code/issues/18588): direct the agent at a local image, or let a browser-automation agent screenshot its own dev server.
+- **i18n + theming** — English and Chinese UI; 150+ terminal colour themes; font scaling.
 
 ## Documentation
 
@@ -37,7 +38,7 @@ The browser terminal is xterm.js against a real PTY, so what you see is what the
 
 ### Third-party LLM API management
 
-Profiles are first-class objects: each carries `baseUrl` / `authToken` / `model`, and the Settings dialog probes the endpoint (`POST /v1/chat/completions`, one-token ping) before you save so misconfiguration surfaces immediately. Any OpenAI-compatible endpoint works — Anthropic's own API, OpenRouter, a local LiteLLM, Ollama, whatever. Profiles and presets are decoupled: swap the API a preset points at without rebuilding the preset. Environment vars follow the CLI's conventions (`ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_MODEL`), so nothing about the wire protocol is cchub-specific.
+Profiles are first-class objects: each carries `name` / `baseUrl` / `authToken` / `model` / `subagentModel` / `smallFastModel`, and the Settings dialog probes the endpoint before you save (native Anthropic `POST /v1/messages` for URLs containing `/anthropic`, `POST /v1/chat/completions` for OpenAI-compatible ones) so misconfiguration surfaces immediately. Any OpenAI-compatible endpoint works — Anthropic's own API, OpenRouter, a local LiteLLM, Ollama, whatever. Profiles and presets are decoupled: swap the API a preset points at without rebuilding the preset. Environment vars follow the CLI's conventions (`ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_MODEL`), so nothing about the wire protocol is cchub-specific.
 
 ![Profile editor with base URL, auth token, and model fields](docs/screenshots/profile-editor.png)
 
@@ -60,9 +61,9 @@ Paths for the external executables come from the Settings dialog, with an auto-d
 
 ![Reveal menu with file browser / VS Code / cmd / PowerShell entries](docs/screenshots/reveal-menu.png)
 
-### Task-completion notifications (best-effort)
+### Hook-driven notifications
 
-When a session goes from "processing" back to "idle" and you're not looking at it, cchub can fire a browser desktop notification. Detection is heuristic — it reads the terminal output rather than any structured event from Claude — so **it will misfire and it will occasionally miss**. Long batch commands can look idle mid-turn; a format change in the CLI's spinner can knock the detector off. There's a toggle in Settings ("通知 / Notifications"), off by default. Longer-term this wants to move to a Claude Code hook or a structured completion event; until then it's usable but not something to rely on for anything critical.
+cchub provisions Claude Code hooks (`Notification`, `Stop`, `StopFailure`) per session. The `Notification` hook fires on `idle_prompt` / `permission_prompt` to alert you when a session needs attention; `Stop` and `StopFailure` fire at turn completion. When a hook fires and you're not looking at the session, cchub triggers a browser desktop notification. For remote (SSH) sessions, the hook endpoint is tunneled back through the SSH connection so notifications work transparently. There's a toggle in Settings ("通知 / Notifications"), off by default.
 
 ![Notifications settings tab](docs/screenshots/settings-notifications.png)
 
@@ -81,7 +82,7 @@ Fed images render as clickable `[Image #N]` chips in the browser terminal — th
 
 - Node.js **≥ 18**
 - [Claude Code CLI](https://github.com/anthropics/claude-code) (`npm install -g @anthropic-ai/claude-code`)
-- Windows
+- Windows (core terminal + SSH run cross-platform; external-tool reveal — cmd, PowerShell, XShell, XFTP — is Windows-only)
 
 ## Install & Run
 
@@ -109,12 +110,12 @@ SSH provides authentication and transport encryption; no port needs to be expose
 
 ## Configuration
 
-Configuration is a single JSON file at `~/.cchub/config.json` (Windows: `%USERPROFILE%\.cchub\config.json`). The Settings and Presets Config dialogs edit this file for you. Fields:
+Configuration is a single JSON file at `~/.cchub/config.json` (Windows: `%USERPROFILE%\.cchub\config.json`). The Config dialog has four tabs — LLM Providers, Servers, Proxies, Presets — each with create / edit / copy / delete. Fields:
 
+- **profiles** — Reusable LLM provider configs: `baseUrl`, `authToken`, `model`, `subagentModel`, `smallFastModel`, optional proxy reference.
 - **servers** — Local or SSH targets. SSH targets carry host / port / username / auth (password or private-key path).
-- **profiles** — Reusable environment sets: `baseUrl`, `authToken`, `model`, optional proxy reference.
-- **presets** — Named launch configs (server + profile + cwd + resume mode). The topbar "+ New" builds a session from a preset.
-- **proxies** — Optional HTTP proxy definitions for outbound Claude API calls (used by SSH sessions via reverse tunnel).
+- **proxies** — HTTP proxy definitions for outbound Claude API calls (bind port on the cchub side, forward to an upstream proxy; used by SSH sessions via reverse tunnel).
+- **presets** — Named launch configs (server + profile + cwd + resume mode). The topbar "+ New Session" builds a session from a preset.
 
 ## Development
 
