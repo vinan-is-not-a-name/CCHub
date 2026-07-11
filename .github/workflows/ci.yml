@@ -20,6 +20,8 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm run typecheck
+      - name: Install Playwright browsers
+        run: npx playwright install chromium
       - name: Unit tests
         run: npx playwright test --project=unit
 

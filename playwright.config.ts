@@ -93,7 +93,7 @@ export default defineConfig({
       // old explicit allowlist silently skipped any spec not listed.
       name: 'unit',
       testMatch: /.*\.spec\.ts$/,
-      testIgnore: ['**/integration.spec.ts', '**/e2e.spec.ts'],
+      testIgnore: ['**/integration.spec.ts', '**/e2e.spec.ts', '**/*.e2e.spec.ts'],
       use: {},
     },
     {
@@ -103,12 +103,12 @@ export default defineConfig({
     },
     {
       name: 'chromium',
-      testMatch: '**/e2e.spec.ts',
+      testMatch: [/e2e\.spec\.ts$/],
       use: { ...devices['Desktop Chrome'] },
     },
     {
       name: 'firefox',
-      testMatch: '**/e2e.spec.ts',
+      testMatch: [/e2e\.spec\.ts$/],
       use: {
         ...devices['Desktop Firefox'],
         // This host has a system PAC (AutoConfigURL) that routes even loopback
@@ -120,7 +120,7 @@ export default defineConfig({
     },
     {
       name: 'webkit',
-      testMatch: '**/e2e.spec.ts',
+      testMatch: [/e2e\.spec\.ts$/],
       use: { ...devices['Desktop Safari'] },
     },
   ],
