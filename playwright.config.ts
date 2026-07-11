@@ -63,7 +63,6 @@ writeFileSync(testConfigPath, JSON.stringify({
 
 // Env propagated to all test workers + the cchub webServer.
 const TEST_ENV = {
-  TEST_HAS_CLAUDE: 'true',
   TEST_LOCAL_PRESET: 'cchub',
   TEST_REMOTE_PRESET: 'cchub ssh',
   TEST_SSH_KEY_PATH: ssh.privateKeyPath,
