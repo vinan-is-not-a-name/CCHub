@@ -1,11 +1,59 @@
-import { readdir, stat } from 'fs/promises';
+import { mkdir, readdir, stat } from 'fs/promises';
 import { resolve } from 'path';
 import { DirectoryEntry, SshServerProfile } from '../../../shared/protocol.js';
-import { LOCAL_DRIVES_PATH, splitLocalPath, splitRemotePath, normalizeLocalPath } from '../../../shared/paths.js';
+import { LOCAL_DRIVES_PATH, splitLocalPath, splitRemotePath, normalizeLocalPath, joinRemotePath, isValidFolderName, folderNameOsFor, type FolderNameOs } from '../../../shared/paths.js';
 import { execOnce } from '../transport/remoteExec.js';
 import { shellQuote } from '../../utils/shellEscape.js';
 
 const MAX_ENTRIES = 80;
+
+/** Stable failure codes for the "new folder" action. The client maps these to
+ * localized toast text, so the server never emits locale-specific strings.
+ *   - invalid: name rejected by isValidFolderName (or an un-creatable root)
+ *   - exists:  a directory of that name is already there
+ *   - denied:  filesystem refused for permission reasons (local only — remote
+ *              shells can't reliably distinguish this from a generic failure)
+ *   - failed:  anything else */
+export type MkdirErrorCode = 'invalid' | 'exists' | 'denied' | 'failed';
+
+export class MkdirError extends Error {
+  constructor(public readonly code: MkdirErrorCode) {
+    super(code);
+    this.name = 'MkdirError';
+  }
+}
+
+/** Create one sub-directory `name` under the local `parent`; returns its full
+ * path on success. Non-recursive on purpose so an existing folder surfaces as
+ * an `exists` error instead of silently succeeding. */
+export async function createLocalDirectory(parent: string, name: string, os: FolderNameOs): Promise<string> {
+  if (!isValidFolderName(name, os)) throw new MkdirError('invalid');
+  const target = resolve(parent, name.trim());
+  try {
+    await mkdir(target);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'EEXIST') throw new MkdirError('exists');
+    if (code === 'EACCES' || code === 'EPERM') throw new MkdirError('denied');
+    throw new MkdirError('failed');
+  }
+  return target;
+}
+
+/** Create one sub-directory `name` under the remote POSIX `parent` via a single
+ * ssh round-trip; returns its full path on success. Uses a plain (non-`-p`)
+ * mkdir and prints a stable token per outcome so the result survives locale
+ * differences in the remote shell's error text. */
+export async function createRemoteDirectory(server: SshServerProfile, parent: string, name: string): Promise<string> {
+  if (!isValidFolderName(name, folderNameOsFor(server.os))) throw new MkdirError('invalid');
+  const target = joinRemotePath(parent, name.trim());
+  const quoted = shellQuote(target);
+  const script = `mkdir ${quoted} 2>/dev/null && printf DONE || { test -d ${quoted} && printf EXISTS || printf FAIL; }`;
+  const output = (await execOnce(server, script)).trim();
+  if (output.includes('DONE')) return target;
+  if (output.includes('EXISTS')) throw new MkdirError('exists');
+  throw new MkdirError('failed');
+}
 
 export async function listLocalDirectories(inputPath: string, exact = false, includeFiles = false): Promise<{ path: string; entries: DirectoryEntry[] }> {
   if (inputPath === LOCAL_DRIVES_PATH) return listLocalDrives();

@@ -89,6 +89,15 @@ export interface LaunchOverrides {
   cwd?: string;
   condaEnv?: string;
   resume?: string;
+  /** Toggle --dangerously-skip-permissions for this session. When undefined the
+   * server falls back to the preset value. */
+  skipPermissions?: boolean;
+  /** Proxy id for this session. When undefined the server falls back to the
+   * preset value. Only meaningful for SSH targets. */
+  proxyId?: string;
+  /** Effort level for this session. When undefined the server falls back to the
+   * preset value (or auto). */
+  effort?: string;
 }
 
 /** A fully resolved launch — pure data, no behavior. The application layer

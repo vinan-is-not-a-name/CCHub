@@ -20,7 +20,7 @@ export interface BusEventMap {
   /** Re-launch a RecentLaunch verbatim, no dialog. Skips form validation
    * entirely — the recorded identity already resolved successfully once. */
   'launch:relaunch': { recent: RecentLaunch };
-  'launch:create': { presetId?: string; serverId: string; profileId: string; cwd: string; condaEnv: string; resume: string };
+  'launch:create': { presetId?: string; serverId: string; profileId: string; cwd: string; condaEnv: string; resume: string; skipPermissions: boolean; proxyId: string; effort: string };
   /** Open the directory/file picker against a server, seeded with whatever
    * the target input currently holds. `mode` defaults to 'directory' (the
    * launch-dialog cwd flow); pass 'file' to include regular files in the

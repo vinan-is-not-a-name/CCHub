@@ -41,6 +41,7 @@ export function dispatch(ctx: WsCtx, msg: ClientMessage): void {
       return;
     case 'config.profile.test':
     case 'launch.cwd.list':
+    case 'launch.cwd.mkdir':
     case 'launch.conda.list':
       handleLaunchMessage(ctx, msg);
       return;

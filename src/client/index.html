@@ -61,19 +61,12 @@
         </div>
         <button class="dialog-close icon-button" value="cancel" data-i18n-aria-label="launch.close" aria-label="Close launch dialog">×</button>
       </header>
-      <div class="launch-grid">
-        <label class="field"><span data-i18n="launch.preset">Preset</span> <select id="launch-preset"></select></label>
-        <label class="field"><span data-i18n="launch.server">Server</span> <select id="launch-server"></select></label>
-        <label class="field"><span data-i18n="launch.profile">Profile</span> <select id="launch-profile"></select></label>
+      <div class="launch-preset-row">
+        <label class="field"><span data-i18n="launch.loadPreset">Load from preset</span> <select id="launch-preset"></select></label>
+        <span id="launch-preset-badge" class="preset-badge"></span>
       </div>
-      <div class="section-label" data-i18n="launch.overrides">Overrides</div>
-      <div class="launch-grid overrides-grid">
-        <label class="field span-2"><span data-i18n="launch.cwd">Working directory</span>
-          <span class="input-with-action"><input id="launch-cwd" autocomplete="off"><button id="launch-browse" class="secondary-button" value="default" type="button" data-i18n="launch.browse">Browse</button></span>
-        </label>
-        <label class="field"><span data-i18n="launch.conda">Conda env</span> <select id="launch-conda"><option value="" data-i18n="launch.condaNone">No conda env</option></select></label>
-        <label class="field"><span data-i18n="launch.resume">Resume</span> <select id="launch-resume"><option value="" data-i18n="launch.resumeNew">New session</option><option value="continue" selected data-i18n="launch.resumeContinue">Continue latest</option></select></label>
-      </div>
+      <!-- Shared session-config fields injected by injectSessionFields('launch-fields', 'launch'). -->
+      <div id="launch-fields"></div>
       <menu class="dialog-actions">
         <button id="launch-create" class="primary-button" value="default" data-i18n="launch.create">Create session</button>
       </menu>
@@ -90,10 +83,18 @@
         <button class="dialog-close icon-button" value="cancel" data-i18n-aria-label="directory.close" aria-label="Close directory dialog">×</button>
       </header>
       <div class="directory-picker">
-        <div class="directory-toolbar">
-          <button id="directory-up" class="secondary-button" type="button" data-i18n="directory.up">Up</button>
-          <input id="directory-path" autocomplete="off" data-i18n-aria-label="directory.pathAria" aria-label="Directory path">
-          <button id="directory-go" class="secondary-button" type="button" data-i18n="directory.go">Go</button>
+        <div class="directory-controls">
+          <div class="directory-toolbar">
+            <button id="directory-up" class="secondary-button" type="button" data-i18n="directory.up">Up</button>
+            <input id="directory-path" autocomplete="off" data-i18n-aria-label="directory.pathAria" aria-label="Directory path">
+            <button id="directory-go" class="secondary-button" type="button" data-i18n="directory.go">Go</button>
+            <button id="directory-newfolder" class="secondary-button" type="button" data-i18n="directory.newFolder">New folder</button>
+          </div>
+          <div id="directory-newfolder-row" class="directory-newfolder-row" hidden>
+            <input id="directory-newfolder-name" autocomplete="off" data-i18n-placeholder="directory.newFolder.placeholder" data-i18n-aria-label="directory.newFolder.aria" aria-label="New folder name">
+            <button id="directory-newfolder-create" class="primary-button" type="button" data-i18n="directory.newFolder.create">Create</button>
+            <button id="directory-newfolder-cancel" class="secondary-button" type="button" data-i18n="directory.newFolder.cancel">Cancel</button>
+          </div>
         </div>
         <div id="directory-list" class="directory-list" data-i18n-aria-label="directory.listAria" aria-label="Directories"></div>
       </div>
@@ -182,23 +183,8 @@
           <label class="field"><span data-i18n="preset.select">Preset</span> <select class="item-list" id="preset-list" data-i18n-aria-label="preset.select.aria" aria-label="Presets"></select></label>
           <div id="preset-mode" class="mode-pill" data-i18n="preset.mode.create">Create preset</div>
           <label class="field"><span data-i18n="field.name">Name</span> <input id="preset-name"></label>
-          <div class="two-fields two-fields--equal">
-            <label class="field"><span data-i18n="preset.server">Server</span> <select id="preset-server"></select></label>
-            <label class="field"><span data-i18n="preset.profile">Profile</span> <select id="preset-profile"></select></label>
-          </div>
-          <label class="field span-2"><span data-i18n="preset.cwd">Working directory</span>
-            <span class="input-with-action"><input id="preset-cwd"><button id="preset-browse" class="secondary-button" value="default" type="button" data-i18n="launch.browse">Browse</button></span>
-          </label>
-          <div class="two-fields">
-            <label class="field"><span data-i18n="preset.conda">Conda env</span> <select id="preset-conda"><option value="" data-i18n="launch.condaNone">No conda env</option></select></label>
-            <label class="field"><span data-i18n="preset.resume">Resume</span> <select id="preset-resume"><option value="" data-i18n="launch.resumeNew">New session</option><option value="continue" data-i18n="launch.resumeContinue">Continue latest</option></select></label>
-          </div>
-          <details id="preset-advanced" class="advanced-section span-2">
-            <summary data-i18n="preset.advanced">Advanced</summary>
-            <label class="check-field"><input id="preset-skip-permissions" type="checkbox"> <span data-i18n="preset.skipPermissions">Skip permission prompts (--dangerously-skip-permissions)</span></label>
-            <label class="field"><span data-i18n="preset.proxy">Proxy</span> <select id="preset-proxy" data-i18n-aria-label="preset.proxy" aria-label="Proxy"></select></label>
-            <label class="field"><span data-i18n="preset.effort">Effort</span> <select id="preset-effort" data-i18n-aria-label="preset.effort" aria-label="Effort"><option value="">Auto</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="xhigh">XHigh</option><option value="max">Max</option></select></label>
-          </details>
+          <!-- Shared session-config fields injected by injectSessionFields('preset-fields', 'preset'). -->
+          <div id="preset-fields"></div>
           <div id="preset-save-error" class="inline-result error" role="alert" hidden></div>
           <div class="card-actions"><button id="preset-delete" class="danger-button" type="button" data-i18n="preset.delete">Delete</button><button id="preset-copy" class="secondary-button" type="button" data-i18n="config.copy">Copy</button><button id="preset-save" class="primary-button" type="button" data-i18n="preset.save.create">Create preset</button></div>
         </section>

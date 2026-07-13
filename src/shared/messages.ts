@@ -76,6 +76,10 @@ export type ClientMessage =
   | { type: 'launch.recent.clear' }
   // discovery
   | { type: 'launch.cwd.list'; serverId?: string; path: string; requestId: string; exact?: boolean; includeFiles?: boolean }
+  // Create a single new sub-directory `name` under `parent` on the target
+  // server, then (client-side) reload the listing. `name` is validated on both
+  // ends via isValidFolderName so it stays one traversal-safe segment.
+  | { type: 'launch.cwd.mkdir'; serverId?: string; parent: string; name: string; requestId: string }
   | { type: 'launch.conda.list'; serverId?: string; requestId: string };
 
 /** Periodic host-resource snapshot pushed to every authenticated client for
@@ -140,6 +144,10 @@ export type ServerMessage =
   | { type: 'shell.reveal.error'; app: 'files' | 'xshell' | 'xftp' | 'vscode' | 'cmd' | 'cmd-admin' | 'powershell' | 'powershell-admin'; message: string }
   // discovery results
   | { type: 'launch.cwd.list.result'; requestId: string; path: string; entries: DirectoryEntry[] }
+  // Result of launch.cwd.mkdir. `ok:false` carries a human-readable `error`
+  // (already-exists, permission denied, invalid name) for a toast; `ok:true`
+  // returns the created directory's full `path` so the client can navigate in.
+  | { type: 'launch.cwd.mkdir.result'; requestId: string; ok: boolean; path?: string; error?: string }
   | { type: 'launch.conda.list.result'; requestId: string; envs: CondaEnvEntry[]; error?: string }
   // Host-resource pill for the topbar. See MetricsSnapshotMsg.
   | MetricsSnapshotMsg

@@ -32,7 +32,7 @@ export function resolveLaunch(input: CreateSessionRequest, store: ConfigService,
   const params = resolveLaunchParams(input, launch, preset);
   // Proxy is SSH-only: a reverse tunnel is meaningless for a local PTY, so we
   // drop it (and its env) for local servers even if the preset names one.
-  const proxy = server.kind === 'ssh' ? resolveProxy(preset, store) : undefined;
+  const proxy = server.kind === 'ssh' ? resolveProxy(launch, preset, store) : undefined;
   const env = buildEnv(profile?.env, proxy);
   return {
     server,
@@ -40,9 +40,9 @@ export function resolveLaunch(input: CreateSessionRequest, store: ConfigService,
     env,
     resume: params.resume,
     condaEnv: params.condaEnv,
-    skipPermissions: preset?.skipPermissions,
+    skipPermissions: launch.skipPermissions ?? preset?.skipPermissions,
     proxy,
-    effort: preset?.effort,
+    effort: launch.effort ?? preset?.effort,
     serverName: server.name,
     profileName: profile?.name,
     presetName: preset?.name,
@@ -58,11 +58,12 @@ function resolvePreset(presetId: string | undefined, store: ConfigService): Laun
   return store.getPreset(presetId);
 }
 
-/** Look up a preset's referenced proxy. Returns the runtime tunnel shape, or
- * undefined when the preset names no proxy or the id no longer resolves (the
- * latter is defensive — save-time validation normally prevents dangling ids). */
-function resolveProxy(preset: LaunchPreset | undefined, store: ConfigService): ProxyTunnel | undefined {
-  const proxy = store.getProxy(preset?.proxyId);
+/** Look up the proxy referenced by the launch override or preset. Returns the
+ * runtime tunnel shape, or undefined when neither names a proxy or the id no
+ * longer resolves. */
+function resolveProxy(launch: LaunchOverrides, preset: LaunchPreset | undefined, store: ConfigService): ProxyTunnel | undefined {
+  const proxyId = launch.proxyId ?? preset?.proxyId;
+  const proxy = store.getProxy(proxyId);
   if (!proxy) return undefined;
   return { bindPort: proxy.bindPort, host: proxy.host, port: proxy.port };
 }

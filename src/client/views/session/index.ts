@@ -25,6 +25,9 @@ export function mountSessionView(deps: AppDeps, params: URLSearchParams, notify?
       cwd: input.cwd,
       condaEnv: input.condaEnv,
       resume: input.resume,
+      skipPermissions: input.skipPermissions,
+      proxyId: input.proxyId,
+      effort: input.effort,
     });
     create({ presetId: input.presetId, launch });
   });

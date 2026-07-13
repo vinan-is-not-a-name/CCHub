@@ -8,6 +8,8 @@ import {
   parentRemoteDirectory,
   displayDirectoryPath,
   resolveDirectoryInput,
+  joinRemotePath,
+  isValidFolderName,
 } from '../src/shared/paths.js';
 
 // Pure path protocol shared by client and server — directory-browse core. These
@@ -83,6 +85,80 @@ test.describe('parentRemoteDirectory', () => {
   for (const [input, expected] of cases) {
     test(`${JSON.stringify(input)} → ${JSON.stringify(expected)}`, () => {
       expect(parentRemoteDirectory(input)).toBe(expected);
+    });
+  }
+});
+
+test.describe('joinRemotePath', () => {
+  const cases: Array<[string, string, string]> = [
+    ['/home/u', 'proj', '/home/u/proj'],
+    ['/home/u/', 'proj', '/home/u/proj'],  // trailing slash collapsed
+    ['/', 'proj', '/proj'],                 // root parent
+    ['', 'proj', '/proj'],                  // empty parent → rooted
+    ['/a//', 'b', '/a/b'],                  // multiple trailing slashes collapsed
+  ];
+  for (const [parent, name, expected] of cases) {
+    test(`(${JSON.stringify(parent)}, ${JSON.stringify(name)}) → ${JSON.stringify(expected)}`, () => {
+      expect(joinRemotePath(parent, name)).toBe(expected);
+    });
+  }
+});
+
+// Validation is OS-aware: POSIX (linux/macos) is near-permissive, Windows is
+// strict. The two suites lock the divergence so a name legal on Linux isn't
+// wrongly rejected for an SSH target, and Windows-hostile names (reserved
+// chars, device names, trailing dots) can't reach a local mkdir.
+
+test.describe('isValidFolderName — posix', () => {
+  // Everything but `/` and NUL is a legal POSIX segment — including the chars
+  // and device-name words Windows reserves, and trailing/leading dots.
+  const legal = [
+    'proj', 'my folder', 'a-b_c', 'v1.2', '2026', '.hidden', 'a.b.c', '  spaced-out  ',
+    'a:b', 'a*b', 'a?b', 'a"b', 'a<b', 'a>b', 'a|b', 'a\\b', // Windows-illegal chars, fine here
+    'con', 'nul', 'com1', 'lpt3',                             // Windows device names, ordinary here
+    'foo.', 'a..', '...',                                     // trailing dots are legal on POSIX
+  ];
+  for (const name of legal) {
+    test(`accepts ${JSON.stringify(name)}`, () => {
+      expect(isValidFolderName(name, 'posix')).toBe(true);
+    });
+  }
+
+  // Only blank, the nav aliases, the `/` separator and the NUL byte are illegal.
+  const illegal = ['', '   ', '.', '..', 'a/b', 'a\x00b'];
+  for (const name of illegal) {
+    test(`rejects ${JSON.stringify(name)}`, () => {
+      expect(isValidFolderName(name, 'posix')).toBe(false);
+    });
+  }
+});
+
+test.describe('isValidFolderName — windows', () => {
+  // Legal names — the regression guard: spaces, dashes, digits and mid-name
+  // dots must all pass (an earlier ` -<` range bug rejected every one of these).
+  // The last four are near-misses that must NOT trip the reserved-name rule.
+  const legal = [
+    'proj', 'my folder', 'a-b_c', 'v1.2', '2026', '.hidden', 'a.b.c', '  spaced-out  ',
+    'console', 'com0', 'com10', 'null',
+  ];
+  for (const name of legal) {
+    test(`accepts ${JSON.stringify(name)}`, () => {
+      expect(isValidFolderName(name, 'windows')).toBe(true);
+    });
+  }
+
+  // Illegal — blank, nav aliases, path separators, reserved chars, control
+  // chars, reserved device names (bare/with extension/any case), and a trailing
+  // dot Windows would silently strip.
+  const illegal = [
+    '', '   ', '.', '..',
+    'a/b', 'a\\b', 'a:b', 'a*b', 'a?b', 'a"b', 'a<b', 'a>b', 'a|b', 'a\tb', 'a\nb',
+    'CON', 'con', 'nul', 'NUL', 'aux', 'prn', 'com1', 'LPT3', 'con.txt',
+    'foo.', 'a..',
+  ];
+  for (const name of illegal) {
+    test(`rejects ${JSON.stringify(name)}`, () => {
+      expect(isValidFolderName(name, 'windows')).toBe(false);
     });
   }
 });

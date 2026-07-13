@@ -1,9 +1,10 @@
 import { ClientMessage, PROFILE_FIELD_TO_ENV } from '../../../shared/protocol.js';
-import { listCondaEnvs, listTargetDirectories } from '../../infrastructure/discovery/index.js';
+import { createTargetDirectory, listCondaEnvs, listTargetDirectories } from '../../infrastructure/discovery/index.js';
+import { MkdirError } from '../../infrastructure/discovery/directoryList.js';
 import { probeProfileConnection } from '../../infrastructure/transport/profileProbe.js';
 import { WsCtx } from '../connection.js';
 
-type LaunchMessage = Extract<ClientMessage, { type: 'config.profile.test' | 'launch.cwd.list' | 'launch.conda.list' }>;
+type LaunchMessage = Extract<ClientMessage, { type: 'config.profile.test' | 'launch.cwd.list' | 'launch.cwd.mkdir' | 'launch.conda.list' }>;
 
 export function handleLaunchMessage(ctx: WsCtx, msg: LaunchMessage): void {
   switch (msg.type) {
@@ -34,6 +35,13 @@ export function handleLaunchMessage(ctx: WsCtx, msg: LaunchMessage): void {
       listTargetDirectories(server, msg.path, msg.exact, msg.includeFiles)
         .then((result) => ctx.send({ type: 'launch.cwd.list.result', requestId: msg.requestId, ...result }))
         .catch(() => ctx.send({ type: 'launch.cwd.list.result', requestId: msg.requestId, path: msg.path, entries: [] }));
+      return;
+    }
+    case 'launch.cwd.mkdir': {
+      const server = ctx.store.resolveServer({ preferredIds: [msg.serverId], fallbackTarget: ctx.defaultTarget });
+      createTargetDirectory(server, msg.parent, msg.name)
+        .then((path) => ctx.send({ type: 'launch.cwd.mkdir.result', requestId: msg.requestId, ok: true, path }))
+        .catch((error) => ctx.send({ type: 'launch.cwd.mkdir.result', requestId: msg.requestId, ok: false, error: error instanceof MkdirError ? error.code : 'failed' }));
       return;
     }
     case 'launch.conda.list': {

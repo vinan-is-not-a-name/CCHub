@@ -1,9 +1,10 @@
 import { el, val, setVal, checked, setChecked, fillSelect } from '../../dom.js';
 import type { AppDeps } from '../../deps.js';
 import { bindCondaSelect } from '../widgets/condaSelect.js';
+import { bindCwdSuggest } from '../widgets/cwdSuggest.js';
 import { createCardController } from './cardController.js';
 import { buildPresetSaveMessage, type PresetFormValues } from './cardSerializers.js';
-import { t } from '../../i18n.js';
+import { injectSessionFields } from '../sessionFields.js';
 
 function readPresetForm(): PresetFormValues {
   return {
@@ -20,7 +21,15 @@ function readPresetForm(): PresetFormValues {
 }
 
 export function mountPresetCard(deps: AppDeps) {
+  // Inject the shared field block before the controller wires up — everything
+  // below addresses fields by id, so they must exist first.
+  injectSessionFields('preset-fields', 'preset');
   const condaSelect = bindCondaSelect(deps, 'preset-conda');
+  const cwdSuggest = bindCwdSuggest(deps, {
+    inputId: 'preset-cwd',
+    suggestionsId: 'preset-cwd-suggestions',
+    getServer: () => deps.store.getServer(val('preset-server')),
+  });
 
   const controller = createCardController(deps, {
     prefix: 'preset',
@@ -68,7 +77,6 @@ export function mountPresetCard(deps: AppDeps) {
       fillSelect(el<HTMLSelectElement>('preset-server'), s.config!.servers, '', true);
       fillSelect(el<HTMLSelectElement>('preset-profile'), s.config!.profiles, '', true);
       fillSelect(el<HTMLSelectElement>('preset-proxy'), s.config!.proxies, val('preset-proxy'), true);
-      renderResumeOptions(el<HTMLSelectElement>('preset-resume'), val('preset-resume') || 'continue');
     },
   });
 
@@ -83,12 +91,8 @@ export function mountPresetCard(deps: AppDeps) {
   function updateTarget(pendingValue?: string) {
     const serverId = val('preset-server') || undefined;
     el<HTMLButtonElement>('preset-browse').disabled = !serverId;
+    cwdSuggest.hide();
     void condaSelect.refresh(serverId, pendingValue);
-  }
-
-  function renderResumeOptions(select: HTMLSelectElement, selected?: string) {
-    select.innerHTML = `<option value="">${t('preset.resume.new')}</option><option value="continue">${t('preset.resume.continue')}</option>`;
-    select.value = selected ?? 'continue';
   }
 
   return controller;

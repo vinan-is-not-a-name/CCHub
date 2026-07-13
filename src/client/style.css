@@ -1101,34 +1101,66 @@ dialog::backdrop {
   line-height: 1;
 }
 
-.launch-grid,
-.two-fields {
-  display: grid;
+/* Shared session-config field block — one source of truth for the Presets
+   card and the launch dialog (see sessionFields.ts). A flat vertical stack of
+   rows; `.session-grid` rows split into two equal columns, `.span-2` rows run
+   full width. Labels read crisp/dark like the config panel regardless of which
+   dialog hosts them. */
+.session-fields {
+  display: flex;
+  flex-direction: column;
   gap: 12px;
 }
 
-.launch-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+.session-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.session-fields .field {
+  gap: 6px;
+  color: var(--text);
+  font-weight: 700;
+}
+
+/* Preset loader row inside the launch dialog: dropdown + badge side-by-side. */
+.launch-preset-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  padding: 0 0 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.launch-preset-row .field {
+  flex: 0 0 220px;
+}
+
+.preset-badge {
+  display: inline-block;
+  font-size: .72rem;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--app-bg);
+  color: var(--muted);
+  border: 1px solid var(--line);
+  white-space: nowrap;
+  margin-bottom: 4px;  /* align with the select baseline */
+}
+
+.preset-badge:empty {
+  display: none;
 }
 
 .two-fields {
+  display: grid;
+  gap: 12px;
   grid-template-columns: minmax(0, 1fr) 120px;
-}
-
-.overrides-grid {
-  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr);
 }
 
 .span-2 {
   grid-column: span 2;
-}
-
-.section-label {
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 
 .field {
@@ -1246,10 +1278,25 @@ dialog::backdrop {
   min-height: 0;
 }
 
+.directory-controls {
+  display: grid;
+  gap: 8px;
+}
+
 .directory-toolbar {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   gap: 8px;
+}
+
+.directory-newfolder-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+}
+
+.directory-newfolder-row[hidden] {
+  display: none;
 }
 
 .directory-list {
@@ -1719,8 +1766,7 @@ button:disabled {
     gap: 8px;
   }
 
-  .launch-grid,
-  .overrides-grid {
+  .session-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -1818,8 +1864,7 @@ button:disabled {
     padding: 6px;
   }
 
-  .launch-grid,
-  .overrides-grid,
+  .session-grid,
   .two-fields {
     grid-template-columns: minmax(0, 1fr);
   }

@@ -6,6 +6,9 @@ export interface LaunchFormValues {
   cwd: string;
   condaEnv: string;
   resume: string;
+  skipPermissions: boolean;
+  proxyId: string;
+  effort: string;
 }
 
 // Build LaunchOverrides from the form. All values pass through verbatim; the
@@ -17,5 +20,8 @@ export function buildLaunchOverrides(form: LaunchFormValues): LaunchOverrides {
     cwd: form.cwd || undefined,
     condaEnv: form.condaEnv,
     resume: form.resume,
+    skipPermissions: form.skipPermissions || undefined,
+    proxyId: form.proxyId || undefined,
+    effort: form.effort || undefined,
   };
 }

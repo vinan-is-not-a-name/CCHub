@@ -1,11 +1,16 @@
 import type { RecentLaunch } from '../../shared/protocol.js';
-import { el, val, setVal, fillSelect } from '../dom.js';
+import { el, val, setVal, checked, setChecked, fillSelect } from '../dom.js';
 import type { AppDeps } from '../deps.js';
 import { bindCondaSelect } from './widgets/condaSelect.js';
 import { bindCwdSuggest } from './widgets/cwdSuggest.js';
+import { injectSessionFields } from './sessionFields.js';
+import { t } from '../i18n.js';
 
 export function mountLaunchDialog(deps: AppDeps, params: URLSearchParams) {
   const launchDialog = el<HTMLDialogElement>('launch-dialog');
+  // Inject the shared field block before binding widgets — condaSelect and
+  // cwdSuggest both grab fields by id.
+  injectSessionFields('launch-fields', 'launch');
   const condaSelect = bindCondaSelect(deps, 'launch-conda');
   const cwdSuggest = bindCwdSuggest(deps, {
     inputId: 'launch-cwd',
@@ -38,6 +43,9 @@ export function mountLaunchDialog(deps: AppDeps, params: URLSearchParams) {
       cwd: val('launch-cwd'),
       condaEnv: val('launch-conda'),
       resume: val('launch-resume'),
+      skipPermissions: checked('launch-skip-permissions'),
+      proxyId: val('launch-proxy'),
+      effort: val('launch-effort'),
     });
   };
 
@@ -50,11 +58,8 @@ export function mountLaunchDialog(deps: AppDeps, params: URLSearchParams) {
   function render() {
     const config = deps.store.get().config;
     if (!config) return;
-    // Preset defaults to blank ("New session") — never auto-select the
-    // implicit default. Auto-selecting made every launch inherit the first
-    // preset the user ever created, so the tab, rail chip, and recent
-    // history all read as that preset's name even for truly custom launches.
     fillSelect(el<HTMLSelectElement>('launch-preset'), config.presets, undefined, true);
+    fillSelect(el<HTMLSelectElement>('launch-proxy'), config.proxies, val('launch-proxy'), true);
     applyPreset();
   }
 
@@ -65,9 +70,14 @@ export function mountLaunchDialog(deps: AppDeps, params: URLSearchParams) {
     const serverId = preset ? preset.serverId : initialServerId();
     fillSelect(el<HTMLSelectElement>('launch-server'), config.servers, serverId);
     fillSelect(el<HTMLSelectElement>('launch-profile'), config.profiles, preset?.anthropicProfileId ?? config.defaults.profileId);
+    fillSelect(el<HTMLSelectElement>('launch-proxy'), config.proxies, preset?.proxyId ?? val('launch-proxy'), true);
     setVal('launch-resume', preset?.resume ?? 'continue');
     cwdSuggest.hide();
     setVal('launch-cwd', preset ? preset.cwd : params.get('sshCwd') ?? params.get('cwd') ?? '');
+    setChecked('launch-skip-permissions', preset?.skipPermissions === true);
+    setVal('launch-effort', preset?.effort ?? '');
+    setAdvancedOpen(preset ? (preset.skipPermissions === true || Boolean(preset.proxyId) || Boolean(preset.effort)) : false);
+    updateBadge(preset?.name);
     void condaSelect.refresh(serverId, preset?.condaEnv ?? '');
   }
 
@@ -82,6 +92,19 @@ export function mountLaunchDialog(deps: AppDeps, params: URLSearchParams) {
     el<HTMLButtonElement>('launch-browse').hidden = false;
     cwdSuggest.hide();
     void condaSelect.refresh(val('launch-server') || undefined);
+  }
+
+  function setAdvancedOpen(open: boolean) {
+    el<HTMLDetailsElement>('launch-advanced').open = open;
+  }
+
+  function updateBadge(presetName?: string) {
+    const badge = el('launch-preset-badge');
+    if (presetName) {
+      badge.textContent = presetName;
+    } else {
+      badge.textContent = t('launch.noPreset');
+    }
   }
 
   /** Overlay a RecentLaunch onto the freshly-rendered form. Runs AFTER

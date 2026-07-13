@@ -142,4 +142,30 @@ test.describe('resolveLaunch', () => {
     const r = resolveLaunch({ presetId: 'pre' }, svc);
     expect(r.effort).toBeUndefined();
   });
+
+  test('launch override skipPermissions takes precedence over preset', () => {
+    const local = localServer('local');
+    const pre = preset('pre', { serverId: 'local', cwd: '/work', skipPermissions: false });
+    const svc = makeService({ servers: [local], presets: [pre], defaults: { presetId: 'pre' } });
+    const r = resolveLaunch({ presetId: 'pre', launch: { skipPermissions: true } }, svc);
+    expect(r.skipPermissions).toBe(true);
+  });
+
+  test('launch override effort takes precedence over preset', () => {
+    const local = localServer('local');
+    const pre = preset('pre', { serverId: 'local', cwd: '/work', effort: 'medium' });
+    const svc = makeService({ servers: [local], presets: [pre], defaults: { presetId: 'pre' } });
+    const r = resolveLaunch({ presetId: 'pre', launch: { effort: 'max' } }, svc);
+    expect(r.effort).toBe('max');
+  });
+
+  test('launch override proxyId takes precedence over preset for SSH', () => {
+    const ssh = sshServer('ssh');
+    const px1 = proxy('px1', { bindPort: 1080 });
+    const px2 = proxy('px2', { bindPort: 2080, host: '10.0.0.1', port: 9999 });
+    const pre = preset('pre', { serverId: 'ssh', cwd: '/work', proxyId: 'px1' });
+    const svc = makeService({ servers: [ssh], proxies: [px1, px2], presets: [pre], defaults: { presetId: 'pre' } });
+    const r = resolveLaunch({ presetId: 'pre', launch: { proxyId: 'px2' } }, svc);
+    expect(r.proxy).toEqual({ bindPort: 2080, host: '10.0.0.1', port: 9999 });
+  });
 });
