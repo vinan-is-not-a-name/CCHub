@@ -6,11 +6,13 @@ import type { SessionManager } from '../../application/session.js';
 
 /** One row of the outbound broadcast — units chosen so the client renders
  * without touching them:
- *  - `cpuPct` is 0..(100 * cpuCount). Total on a 4-core box maxes at 400.
- *    We do NOT normalize to [0,100] here — the widget shows "12%" for one
- *    session and "310%" for another and the sum makes sense against
- *    `cpuCount`. Keeping cores explicit avoids the "1 fully pegged core on
- *    an 8-core box reports 12.5%" surprise.
+ *  - `cpuPct` is 0..100, normalized across ALL host cores exactly the way
+ *    Task Manager reports per-process CPU: 100% means every core is pegged,
+ *    and a single fully-busy core on an 8-core box reads ~12.5%. An earlier
+ *    version sent raw core-percent (0..100*cpuCount, up to 800% on 8 cores)
+ *    which didn't line up with Task Manager and routinely showed >100% — a
+ *    confusing "is this broken?" number. `total.cpuPct` therefore stays
+ *    within 0..100 (modulo negligible sampling skew).
  *  - `memBytes` is the aggregate RSS in bytes for the WHOLE process tree
  *    rooted at the session pid: the pty-bridge process, its shell, the
  *    Claude CLI node process it spawned, and any subagents that CLI
@@ -25,8 +27,9 @@ import type { SessionManager } from '../../application/session.js';
 export interface MetricsSnapshot {
   /** ms epoch when this sample was taken; useful for freshness gating. */
   ts: number;
-  /** CPUs the host reports — divide `cpuPct` by this to get "% of a core"
-   * if the client wants that; the widget shows the raw value. */
+  /** CPUs the host reports — sent so the widget can show a "N cores" hint
+   * in the tooltip. `cpuPct` is ALREADY normalized by this on the server,
+   * so the client renders it directly without dividing. */
   cpuCount: number;
   /** Physical RAM total in bytes — the widget can render "1.2 GB / 32 GB"
    * if it wants. Sent every sample (constant, but cheap and lets the client
@@ -165,11 +168,14 @@ export class MetricsCollector extends EventEmitter {
     const dtMs = now - this.lastMainTs;
     this.lastMainCpu = process.cpuUsage(); // absolute since process start
     this.lastMainTs = now;
-    // cpuUsage.user/system are microseconds; convert to fraction of the
-    // wall interval — the widget expects "% of one core * cores" so we
-    // scale by 100 (percentage) but NOT by cpuCount (raw core-percent).
+    // cpuUsage.user/system are microseconds of CPU time; convert to a
+    // fraction of the wall interval, then divide by core count so the
+    // result is 0..100 across the whole machine (Task Manager scale). Raw
+    // core-percent would exceed 100% whenever the Node process spans more
+    // than one core (libuv threadpool, GC, JIT), which is what made the
+    // pill disagree with Task Manager.
     const mainCpuPct = dtMs > 0
-      ? ((cpuUsage.user + cpuUsage.system) / 1000) / dtMs * 100
+      ? ((cpuUsage.user + cpuUsage.system) / 1000) / dtMs * 100 / this.cpuCount
       : 0;
     const mainMem = process.memoryUsage().rss;
 
@@ -220,11 +226,11 @@ export class MetricsCollector extends EventEmitter {
 
   /** For each session root pid, expand its descendant tree and aggregate
    * CPU% + RSS across all live processes in that tree. CPU% is computed
-   * per-pid (delta vs previous sample) then summed — that way a
-   * short-lived child that appears and disappears within a window still
-   * contributes what it burned during its lifetime, and a persistent
-   * child that exits mid-window doesn't cause the aggregate to move
-   * backwards (which would clamp to 0 and lose information). */
+   * per-pid (delta vs previous sample) then summed and normalized to
+   * 0..100 across all host cores (see treeCpuPct) — that way a short-lived
+   * child that appears and disappears within a window still contributes
+   * what it burned during its lifetime, and a persistent child that exits
+   * mid-window doesn't cause the aggregate to move backwards. */
   private async probeTrees(rootPids: number[], now: number): Promise<Map<number, { cpuPct: number; memBytes: number }>> {
     const result = new Map<number, { cpuPct: number; memBytes: number }>();
     const rows = await this.sampleAllProcesses();
@@ -242,22 +248,14 @@ export class MetricsCollector extends EventEmitter {
     const seen = new Set<number>();
 
     for (const [root, tree] of trees) {
-      let cpuMs = 0;
+      // Compute % against the PREVIOUS baselines (this.samples) before we
+      // overwrite them below — treeCpuPct reads prev, so ordering matters.
+      const cpuPct = treeCpuPct(tree.members, rowByPid, this.samples, now, ticksPerMs, this.cpuCount);
       for (const pid of tree.members) {
         seen.add(pid);
-        const row = rowByPid.get(pid)!;
-        const prev = this.samples.get(pid);
-        this.samples.set(pid, { cpuTicks: row.cpuTicks, ts: now });
-        if (!prev) continue; // no baseline yet → contributes 0 this tick
-        const dTicks = row.cpuTicks - prev.cpuTicks;
-        // Clamp to 0 per-pid so a pid-reuse (a rare Windows quirk where a
-        // dying pid's slot is handed to a fresh process before we resample)
-        // can't produce a negative delta that eats real activity from
-        // sibling pids in the same tree.
-        if (dTicks > 0) cpuMs += dTicks / ticksPerMs;
+        const row = rowByPid.get(pid);
+        if (row) this.samples.set(pid, { cpuTicks: row.cpuTicks, ts: now });
       }
-      const tickDtMs = MetricsCollector.INTERVAL_MS; // nominal window; small drift is fine for a UI meter
-      const cpuPct = cpuMs > 0 ? (cpuMs / tickDtMs) * 100 : 0;
       result.set(root, { cpuPct, memBytes: tree.memBytes });
     }
 
@@ -456,6 +454,44 @@ export function aggregateProcessTree(
     result.set(root, { members, memBytes });
   }
   return result;
+}
+
+/** Sum the CPU% of every pid in a process tree, normalized to 0..100 across
+ * all host cores — the same scale Task Manager uses for a process, so a
+ * single fully-pegged core on an 8-core box reads ~12.5%.
+ *
+ * Per pid we take (Δcpu-ticks → ms) divided by that pid's OWN elapsed wall
+ * time (`now - prev.ts`), giving its fraction of one core, and sum across
+ * the tree. Using each pid's real elapsed time — not a nominal sample
+ * interval — is what keeps a delayed or skipped tick from inflating the
+ * reading: on a busy host the timer fires late, so the true gap is well
+ * over INTERVAL_MS, and dividing by a fixed 2000ms used to double the
+ * number (the ">100%" spike). Finally we divide the summed core-fraction
+ * by `cpuCount` to land on the whole-machine percentage.
+ *
+ * Pure (no mutation): the caller records this tick's baselines and does the
+ * dead-pid bookkeeping. A pid with no `prev` baseline (first sighting) and a
+ * pid whose ticks went backwards (Windows pid-reuse) each contribute 0
+ * rather than a spurious spike or a negative that eats a sibling's usage.
+ * Exported for the spec so the delta math is locked without a real OS probe. */
+export function treeCpuPct(
+  members: number[],
+  rowByPid: Map<number, ProcessSample>,
+  prevByPid: Map<number, PidSample>,
+  now: number,
+  ticksPerMs: number,
+  cpuCount: number,
+): number {
+  let coreFraction = 0;
+  for (const pid of members) {
+    const row = rowByPid.get(pid);
+    const prev = prevByPid.get(pid);
+    if (!row || !prev) continue;
+    const dTicks = row.cpuTicks - prev.cpuTicks;
+    const dtMs = now - prev.ts;
+    if (dTicks > 0 && dtMs > 0) coreFraction += (dTicks / ticksPerMs) / dtMs;
+  }
+  return (coreFraction / Math.max(1, cpuCount)) * 100;
 }
 
 /** Minimal CSV cell splitter for the shape ConvertTo-Csv emits: quoted

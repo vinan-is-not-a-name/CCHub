@@ -3,6 +3,7 @@ import {
   MetricsCollector,
   parseWin32ProcessCsv,
   aggregateProcessTree,
+  treeCpuPct,
   type ProcessSample,
 } from '../src/server/infrastructure/metrics/metricsCollector.js';
 
@@ -183,6 +184,74 @@ test.describe('aggregateProcessTree', () => {
     const rows = [mk(0, 0, 0)];
     const trees = aggregateProcessTree(rows, [0]);
     expect(trees.get(0)).toEqual({ members: [0], memBytes: 0 });
+  });
+});
+
+// treeCpuPct is the delta+normalization math behind the pill's CPU number.
+// It's the piece the "shows >100% and disagrees with Task Manager" bug lived
+// in: the value is normalized to 0..100 across all cores (Task Manager scale)
+// and divided by each pid's REAL elapsed wall time so a late tick can't
+// inflate it. Locked here without a real OS probe.
+
+test.describe('treeCpuPct', () => {
+  // Windows FILETIME: 10_000 100ns-ticks per ms. A pid that consumed one
+  // full core for `ms` milliseconds accrues `ms * WIN_TICKS_PER_MS` ticks.
+  const WIN_TICKS_PER_MS = 10_000;
+  const now = 1_000_000;
+  const row = (pid: number, cpuTicks: number): ProcessSample => ({ pid, ppid: 1, cpuTicks, memBytes: 0 });
+  const rowsMap = (...rs: ProcessSample[]) => new Map(rs.map(r => [r.pid, r]));
+
+  test('one full core over the window reads (100 / cores)% — Task Manager scale', () => {
+    // 2000ms of CPU across a 2000ms window = one full core. On 8 cores
+    // Task Manager shows that process as 12.5%, not 100%.
+    const prev = new Map([[100, { cpuTicks: 0, ts: now - 2000 }]]);
+    const rows = rowsMap(row(100, 2000 * WIN_TICKS_PER_MS));
+    expect(treeCpuPct([100], rows, prev, now, WIN_TICKS_PER_MS, 8)).toBeCloseTo(12.5, 5);
+  });
+
+  test('a delayed tick does not inflate the reading (the >100% spike bug)', () => {
+    // Same one-full-core of CPU (2000ms), but the tick fired late so 4000ms
+    // of wall time actually elapsed → only HALF a core of real load. Dividing
+    // by the real 4000ms gives 6.25% on 8 cores; the old code divided by a
+    // nominal 2000ms and would have doubled it to 12.5% (and worse on longer
+    // stalls, which is how the pill blew past 100%).
+    const prev = new Map([[100, { cpuTicks: 0, ts: now - 4000 }]]);
+    const rows = rowsMap(row(100, 2000 * WIN_TICKS_PER_MS));
+    expect(treeCpuPct([100], rows, prev, now, WIN_TICKS_PER_MS, 8)).toBeCloseTo(6.25, 5);
+  });
+
+  test('sums every pid in the tree, then normalizes once', () => {
+    // Two pids each burning a full core over the window = 2 of 4 cores = 50%.
+    const prev = new Map([
+      [100, { cpuTicks: 0, ts: now - 2000 }],
+      [200, { cpuTicks: 0, ts: now - 2000 }],
+    ]);
+    const rows = rowsMap(row(100, 2000 * WIN_TICKS_PER_MS), row(200, 2000 * WIN_TICKS_PER_MS));
+    expect(treeCpuPct([100, 200], rows, prev, now, WIN_TICKS_PER_MS, 4)).toBeCloseTo(50, 5);
+  });
+
+  test('a pid with no previous baseline contributes 0 (first sighting)', () => {
+    // No prev entry → the pid was just discovered this tick; it must read 0,
+    // not a spike computed against process start.
+    const rows = rowsMap(row(300, 5_000_000));
+    expect(treeCpuPct([300], rows, new Map(), now, WIN_TICKS_PER_MS, 4)).toBe(0);
+  });
+
+  test('a backwards tick delta (Windows pid-reuse) clamps to 0, never negative', () => {
+    // A dying pid's slot handed to a fresh process makes cpuTicks appear to
+    // drop. That must contribute 0 rather than a negative that eats a
+    // sibling's real usage.
+    const prev = new Map([[100, { cpuTicks: 5_000_000, ts: now - 2000 }]]);
+    const rows = rowsMap(row(100, 1_000_000));
+    expect(treeCpuPct([100], rows, prev, now, WIN_TICKS_PER_MS, 4)).toBe(0);
+  });
+
+  test('Linux jiffy scale (0.1 ticks/ms) normalizes the same way', () => {
+    // 1 jiffy = 10ms (CLK_TCK=100) → 0.1 jiffies/ms. 200 jiffies over 2000ms
+    // wall = one full core = 25% on a 4-core host.
+    const prev = new Map([[100, { cpuTicks: 0, ts: now - 2000 }]]);
+    const rows = rowsMap(row(100, 200));
+    expect(treeCpuPct([100], rows, prev, now, 0.1, 4)).toBeCloseTo(25, 5);
   });
 });
 

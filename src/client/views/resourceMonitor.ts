@@ -12,10 +12,10 @@ import { subscribeLocale, t } from '../i18n.js';
  * doesn't fight the terminal for focus.
  *
  * Units the server sends (see MetricsSnapshotMsg):
- *  - `cpuPct` is raw core-percent (100% = one fully pegged core; on an 8-core
- *    box a fully saturated cchub reports up to 800%). We show the raw value
- *    and a "N cores" hint in the tooltip so the number is legible without a
- *    conversion table.
+ *  - `cpuPct` is 0..100, already normalized across all host cores the way
+ *    Task Manager reports it (100% = whole machine saturated). We show it
+ *    directly and add a "N cores" hint in the tooltip; the client does NOT
+ *    divide by cpuCount — the server already did.
  *  - `memBytes` is bytes; formatMem picks MB/GB.
  *
  * Sessions with `pid: null` are SSH sessions — the cc CLI runs on the remote
@@ -89,11 +89,11 @@ export function mountResourceMonitor(deps: AppDeps): void {
     // Screen readers hear the full label via native title; the pill itself
     // stays visually terse. Rebuilt every tick so it tracks live values.
     host.title = `${t('metrics.cpu')} ${cpuStr}  ·  ${t('metrics.mem')} ${memStr}`;
-    // Heat classes: mostly cosmetic; thresholds chosen so a single fully
-    // pegged core doesn't paint the pill red on a many-core host.
-    const perCore = cpu / Math.max(1, msg.cpuCount);
-    host.classList.toggle('hot', perCore >= 50 && perCore < 85);
-    host.classList.toggle('crit', perCore >= 85);
+    // Heat classes: mostly cosmetic. `cpu` is already whole-machine percent
+    // (0..100), so the thresholds read as "half the box busy" / "nearly
+    // pegged" without any per-core conversion.
+    host.classList.toggle('hot', cpu >= 50 && cpu < 85);
+    host.classList.toggle('crit', cpu >= 85);
     if (hoverOpen) renderPopover(popover, msg);
   });
 
