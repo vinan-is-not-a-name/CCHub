@@ -31,13 +31,14 @@ export function fillSelect(
   items: { id: string; name: string }[],
   selected?: string,
   blank = false,
+  blankLabelKey = 'field.new',
 ) {
   const current = selected ?? select.value;
   select.innerHTML = '';
   if (blank) {
     const opt = document.createElement('option');
     opt.value = '';
-    opt.textContent = t('field.new');
+    opt.textContent = t(blankLabelKey);
     select.appendChild(opt);
   }
   for (const item of items) {

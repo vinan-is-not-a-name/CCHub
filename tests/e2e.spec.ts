@@ -159,8 +159,9 @@ test('新建 preset → 出现在列表及 launch dialog', async ({ page }, test
   await page.click('#config-dialog [data-tab="preset"]');
   const name = `e2e-preset-${testInfo.testId.slice(-6)}`;
   await page.fill('#preset-name', name);
-  // server 和 cwd 是必填字段
-  const firstServer = await page.locator('#preset-server option').nth(1).getAttribute('value');
+  // server 和 cwd 是必填字段。preset-server 不再有 "新建…" 空选项,
+  // 第一个真实 server 就是 nth(0)。
+  const firstServer = await page.locator('#preset-server option').nth(0).getAttribute('value');
   await page.selectOption('#preset-server', firstServer!);
   await page.fill('#preset-cwd', process.platform === 'win32' ? 'D:\\' : '/tmp');
   await page.click('#preset-save');

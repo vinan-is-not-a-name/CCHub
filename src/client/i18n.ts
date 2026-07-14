@@ -138,6 +138,7 @@ const en: Dict = {
   'field.name': 'Name',
   'field.password': 'Password',
   'field.new': 'New…',
+  'field.none': 'None',
 
   'provider.select': 'LLM provider',
   'provider.select.aria': 'LLM providers',
@@ -358,6 +359,7 @@ const zh: Dict = {
   'field.name': '名称',
   'field.password': '密码',
   'field.new': '新建…',
+  'field.none': '不使用',
 
   'provider.select': 'LLM 供应商',
   'provider.select.aria': 'LLM 供应商',

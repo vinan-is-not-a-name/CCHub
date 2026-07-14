@@ -59,7 +59,7 @@ export function mountLaunchDialog(deps: AppDeps, params: URLSearchParams) {
     const config = deps.store.get().config;
     if (!config) return;
     fillSelect(el<HTMLSelectElement>('launch-preset'), config.presets, undefined, true);
-    fillSelect(el<HTMLSelectElement>('launch-proxy'), config.proxies, val('launch-proxy'), true);
+    fillSelect(el<HTMLSelectElement>('launch-proxy'), config.proxies, val('launch-proxy'), true, 'field.none');
     applyPreset();
   }
 
@@ -70,7 +70,7 @@ export function mountLaunchDialog(deps: AppDeps, params: URLSearchParams) {
     const serverId = preset ? preset.serverId : initialServerId();
     fillSelect(el<HTMLSelectElement>('launch-server'), config.servers, serverId);
     fillSelect(el<HTMLSelectElement>('launch-profile'), config.profiles, preset?.anthropicProfileId ?? config.defaults.profileId);
-    fillSelect(el<HTMLSelectElement>('launch-proxy'), config.proxies, preset?.proxyId ?? val('launch-proxy'), true);
+    fillSelect(el<HTMLSelectElement>('launch-proxy'), config.proxies, preset?.proxyId ?? val('launch-proxy'), true, 'field.none');
     setVal('launch-resume', preset?.resume ?? 'continue');
     cwdSuggest.hide();
     setVal('launch-cwd', preset ? preset.cwd : params.get('sshCwd') ?? params.get('cwd') ?? '');

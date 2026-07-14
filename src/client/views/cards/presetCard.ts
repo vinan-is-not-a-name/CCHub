@@ -45,9 +45,12 @@ export function mountPresetCard(deps: AppDeps) {
     buildDelete: (selectedId) => ({ type: 'config.preset.delete', id: selectedId }),
     buildCopy: (selectedId) => ({ type: 'config.preset.copy', id: selectedId }),
     fillForm: (p) => {
+      const cfg = deps.store.get().config;
       setVal('preset-name', p.name);
-      setVal('preset-server', p.serverId);
-      setVal('preset-profile', p.anthropicProfileId);
+      // No blank option anymore, so an empty/stale id would blank the select;
+      // fall back to the config default so a real option stays selected.
+      setVal('preset-server', p.serverId || cfg?.defaults.serverId || '');
+      setVal('preset-profile', p.anthropicProfileId || cfg?.defaults.profileId || '');
       setVal('preset-cwd', p.cwd);
       setVal('preset-conda', p.condaEnv);
       setVal('preset-resume', p.resume ?? 'continue');
@@ -60,10 +63,13 @@ export function mountPresetCard(deps: AppDeps) {
       updateTarget(p.condaEnv);
     },
     resetForm: () => {
+      const cfg = deps.store.get().config;
       setVal('preset-list', '');
       setVal('preset-name', '');
-      setVal('preset-server', '');
-      setVal('preset-profile', '');
+      // A new preset defaults to the default server/provider (no blank option
+      // to land on); proxy stays empty → the "None" entry.
+      setVal('preset-server', cfg?.defaults.serverId ?? cfg?.servers[0]?.id ?? '');
+      setVal('preset-profile', cfg?.defaults.profileId ?? cfg?.profiles[0]?.id ?? '');
       setVal('preset-cwd', '');
       setVal('preset-conda', '');
       setVal('preset-resume', 'continue');
@@ -74,9 +80,15 @@ export function mountPresetCard(deps: AppDeps) {
       updateTarget();
     },
     onSubscribe: (s) => {
-      fillSelect(el<HTMLSelectElement>('preset-server'), s.config!.servers, '', true);
-      fillSelect(el<HTMLSelectElement>('preset-profile'), s.config!.profiles, '', true);
-      fillSelect(el<HTMLSelectElement>('preset-proxy'), s.config!.proxies, val('preset-proxy'), true);
+      // Server + LLM provider are required picks from existing config — no
+      // blank "New…" entry (that would imply creating one inline, which lives
+      // in the server/provider cards). Keep the current value so a store
+      // notify mid-edit doesn't reset the selection.
+      fillSelect(el<HTMLSelectElement>('preset-server'), s.config!.servers, val('preset-server'));
+      fillSelect(el<HTMLSelectElement>('preset-profile'), s.config!.profiles, val('preset-profile'));
+      // Proxy is optional: keep the blank option but label it "None" (not
+      // using a proxy), not "New…".
+      fillSelect(el<HTMLSelectElement>('preset-proxy'), s.config!.proxies, val('preset-proxy'), true, 'field.none');
     },
   });
 
