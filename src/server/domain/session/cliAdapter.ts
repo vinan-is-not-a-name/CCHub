@@ -70,13 +70,22 @@ export interface CliAdapter {
    * is only ever consulted for a positive flip, never for a negative
    * "still busy" decision. Pure predicate. */
   looksIdle(screenText: string): boolean;
-  /** Whether the screen shows cc's "turn was interrupted by the user" marker
-   * (the user pressed esc to cancel a running turn). cc's Stop hook does NOT
-   * fire on a user interrupt, so this is the only signal that flips an
-   * esc-cancelled turn back to idle. Consulted only while a turn is in
-   * progress and only when the busy indicator is gone, so a stray "Interrupted"
-   * in ongoing content can't end a live turn. Pure predicate. */
-  looksInterrupted(screenText: string): boolean;
+  /** Whether the screen shows the current turn was ended by a user esc-interrupt
+   * (rather than cc still working). cc's Stop hook does NOT fire on a user
+   * interrupt, so this screen signal is the only thing that flips an
+   * esc-cancelled turn back to idle.
+   *
+   * This is a composite decision, not a bare "does the word Interrupted
+   * appear" check, because cc does NOT clear the screen on interrupt: the
+   * spinner frames from the turn just cancelled linger in the buffer. So the
+   * rule is positional — within a recent tail window, the interrupt marker
+   * must sit *below* the last LIVE busy hint (`esc to interrupt` /
+   * `shells still running`). A stale spinner ellipsis further up does NOT
+   * block the flip (that lingering `…` is exactly what kept esc-cancelled
+   * sessions stuck on 'processing'), and a busy hint co-occurring on/under the
+   * interrupt marker keeps the turn alive (cc quoting "Interrupted" while
+   * genuinely working). Pure predicate. */
+  turnEndedByInterrupt(screenText: string): boolean;
   /** Look at a raw output chunk for CLI-level recovery hints (e.g. "no conversation found"). */
   detectRecovery(chunk: string): CliRecoveryAction | null;
 }

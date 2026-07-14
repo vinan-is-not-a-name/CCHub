@@ -208,6 +208,79 @@ test.describe('looksIdle', () => {
   });
 });
 
+test.describe('turnEndedByInterrupt', () => {
+  // The bug this locks: cc does NOT clear the screen on a user esc-interrupt,
+  // so the just-cancelled turn's spinner frames linger in the buffer. The old
+  // `looksInterrupted && !looksBusy` gate saw that stale `…` frame (or an
+  // erased-but-still-scraped `esc to interrupt` row) as "busy", never opened,
+  // and the session sat on 'processing' (orange dot) until the 5-min hard
+  // timeout. A real interrupt leaves the Interrupted line as the freshest
+  // signal, with no LIVE busy hint below it.
+  test('flips on a real interrupt whose buffer still holds a stale spinner ellipsis above', () => {
+    const screen = [
+      '✻ Forging… (2m 3s · ↑ 4.1k tokens)',   // stale spinner frame — ellipsis, NOT a live hint
+      '⎿  Read config.ts (42 lines)',
+      '⎿  Interrupted · What should Claude do instead?',
+      '╭──────────────────────────────╮',
+      '│ >                            │',
+      '╰──────────────────────────────╯',
+      '  ? for shortcuts',
+    ].join('\n');
+    expect(cli.turnEndedByInterrupt(screen)).toBe(true);
+  });
+
+  test('flips when a stale "esc to interrupt" row sits ABOVE the interrupt marker (interrupt is fresher)', () => {
+    const screen = [
+      'working on it...',
+      '  esc to interrupt',                     // stale hint, higher up
+      '⎿  Interrupted by user',                 // the freshest signal
+      '│ >                            │',
+    ].join('\n');
+    expect(cli.turnEndedByInterrupt(screen)).toBe(true);
+  });
+
+  test('plain interrupt line at the bottom flips', () => {
+    expect(cli.turnEndedByInterrupt('⎿  Interrupted · What should Claude do instead?\n> ')).toBe(true);
+    expect(cli.turnEndedByInterrupt('Interrupted by user')).toBe(true);
+  });
+
+  // The guard that must survive: cc is genuinely working and its output quotes
+  // the word "Interrupted" while the live busy hint is still the bottom row.
+  test('does NOT flip when a live busy hint co-occurs on the same line as "Interrupted"', () => {
+    expect(cli.turnEndedByInterrupt('log: request Interrupted; retrying... esc to interrupt')).toBe(false);
+  });
+
+  test('does NOT flip when the live busy hint is the freshest signal (below the quoted word)', () => {
+    const screen = [
+      'the retry was Interrupted mid-flight, re-running',   // quoted in content
+      '✻ Crunching… (12s)',
+      '  esc to interrupt',                                  // live hint is the bottom-most signal
+    ].join('\n');
+    expect(cli.turnEndedByInterrupt(screen)).toBe(false);
+  });
+
+  test('does NOT flip when a background shell is still running below the interrupt word', () => {
+    const screen = [
+      'note: previous attempt Interrupted',
+      '✻ Crunched for 11s · 1 shell still running',
+    ].join('\n');
+    expect(cli.turnEndedByInterrupt(screen)).toBe(false);
+  });
+
+  test('does NOT flip on an "Interrupted" buried in deep scrollback (older than the tail window)', () => {
+    const screen = [
+      '⎿  Interrupted by user',                              // from a much earlier turn
+      ...Array.from({ length: 25 }, (_, i) => `later content line ${i + 1}`),
+    ].join('\n');
+    expect(cli.turnEndedByInterrupt(screen)).toBe(false);
+  });
+
+  test('false when there is no interrupt marker at all', () => {
+    expect(cli.turnEndedByInterrupt('just normal output\n> ')).toBe(false);
+    expect(cli.turnEndedByInterrupt('')).toBe(false);
+  });
+});
+
 test.describe('detectRecovery', () => {
   test('flags the resume-fallback case on "No conversation found to continue"', () => {
     expect(cli.detectRecovery('Error: No conversation found to continue'))

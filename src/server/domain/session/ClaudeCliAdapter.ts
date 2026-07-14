@@ -34,10 +34,12 @@ const BUSY_TAIL_LINES = 8;
 const IDLE_SUMMARY_PATTERN = /^\s*\S\s+\w+ed\s+for\s+\d+s\s*$/m;
 // cc renders a user esc-interrupt as an "Interrupted" line (observed:
 // `⎿  Interrupted · What should Claude do instead?`, `Interrupted by user`).
-// The word alone is enough here because ManagedSession only consults this
-// while a turn is in progress AND the busy indicator has cleared, so a stray
-// "Interrupted" in mid-turn content can't trip it.
 const INTERRUPTED_PATTERN = /\bInterrupted\b/i;
+// How far up from the bottom we look for the interrupt marker. cc parks the
+// "Interrupted" line just above its input box (a few chrome lines), so a small
+// window reaches it while excluding an "Interrupted" buried in deep scrollback
+// from an earlier turn.
+const INTERRUPT_TAIL_LINES = 20;
 
 export class ClaudeCliAdapter implements CliAdapter {
   // The MCP config is registered so feed_image is discoverable, but the tool is
@@ -70,8 +72,22 @@ export class ClaudeCliAdapter implements CliAdapter {
     return IDLE_SUMMARY_PATTERN.test(screenText);
   }
 
-  looksInterrupted(screenText: string): boolean {
-    return INTERRUPTED_PATTERN.test(screenText);
+  turnEndedByInterrupt(screenText: string): boolean {
+    // Scan the recent tail bottom-referenced and record the last line index of
+    // each signal. The interrupt counts as "this turn was just cancelled" only
+    // when its marker sits strictly BELOW the last live busy hint — i.e. it's
+    // the freshest thing on screen. Same-line ties (cc quoting "Interrupted"
+    // on a line that still shows `esc to interrupt`) resolve to busy, keeping a
+    // live turn alive. A stale spinner ellipsis higher up is intentionally NOT
+    // consulted here, so it can't pin an esc-cancelled turn on 'processing'.
+    const tail = screenText.split(/\r?\n/).slice(-INTERRUPT_TAIL_LINES);
+    let interruptIdx = -1;
+    let busyHintIdx = -1;
+    for (let i = 0; i < tail.length; i++) {
+      if (INTERRUPTED_PATTERN.test(tail[i])) interruptIdx = i;
+      if (BUSY_HINT_PATTERN.test(tail[i])) busyHintIdx = i;
+    }
+    return interruptIdx > busyHintIdx;
   }
 
   detectRecovery(chunk: string): CliRecoveryAction | null {

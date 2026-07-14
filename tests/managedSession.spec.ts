@@ -59,10 +59,19 @@ class FakeCli implements CliAdapter {
   looksIdle(screenText: string): boolean {
     return /^\s*\S\s+\w+ed\s+for\s+\d+s\s*$/m.test(screenText);
   }
-  // Interrupt marker — mirrors the real adapter. Tests inject a screen
-  // containing "Interrupted" to exercise the esc-cancel → idle path.
-  looksInterrupted(screenText: string): boolean {
-    return /\bInterrupted\b/i.test(screenText);
+  // Interrupt discrimination — mirrors the real adapter's positional rule:
+  // the "Interrupted" marker counts only when it's the freshest signal, i.e.
+  // strictly below the last live busy hint in the recent tail. A same-line
+  // co-occurrence (busy hint still showing) resolves to "still busy".
+  turnEndedByInterrupt(screenText: string): boolean {
+    const tail = screenText.split(/\r?\n/).slice(-20);
+    let interruptIdx = -1;
+    let busyHintIdx = -1;
+    for (let i = 0; i < tail.length; i++) {
+      if (/\bInterrupted\b/i.test(tail[i])) interruptIdx = i;
+      if (/esc to interrupt|shells? still running/i.test(tail[i])) busyHintIdx = i;
+    }
+    return interruptIdx > busyHintIdx;
   }
   // The no-conversation marker is what triggers the resume-fallback in the real adapter.
   detectRecovery(chunk: string): CliRecoveryAction | null {
@@ -324,6 +333,25 @@ test.describe('ManagedSession — state transitions', () => {
     await new Promise((r) => setTimeout(r, 20));
     expect(session.getInfo().state).toBe('idle');
     expect(states).toContain('idle');
+    connector.channels[0].emit('exit', 0); // cleanup
+  });
+
+  // The real esc-interrupt: cc does NOT clear the screen, so the busy status
+  // row from the just-cancelled turn is still in the buffer when the
+  // "Interrupted" line prints below it. The old `looksInterrupted && !looksBusy`
+  // gate saw that lingering busy row and never flipped — the session sat on
+  // 'processing' until the hard timeout. The positional rule flips because the
+  // interrupt marker is fresher (below) the stale busy row.
+  test('an esc-interrupt with the stale busy row STILL in the buffer flips processing → idle', async () => {
+    const { session, connector } = makeSession();
+    session.emitHook('user_prompt_submit');
+    // Busy frame cc painted mid-turn — this row lingers (no screen clear).
+    connector.channels[0].emit('data', 'working... esc to interrupt\r\n');
+    // User hits esc: cc appends the Interrupted line + input prompt BELOW,
+    // leaving the busy row above untouched.
+    connector.channels[0].emit('data', '⎿  Interrupted · What should Claude do instead?\r\n> \r\n');
+    await new Promise((r) => setTimeout(r, 20));
+    expect(session.getInfo().state).toBe('idle');
     connector.channels[0].emit('exit', 0); // cleanup
   });
 

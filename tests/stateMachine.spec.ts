@@ -10,7 +10,7 @@ class FakeCli implements CliAdapter {
   isAwaitingApproval(screenText: string): boolean { return screenText.includes('APPROVE'); }
   looksBusy(screenText: string): boolean { return screenText.includes('BUSY'); }
   looksIdle(screenText: string): boolean { return screenText.includes('DONE'); }
-  looksInterrupted(screenText: string): boolean { return screenText.includes('INTERRUPTED'); }
+  turnEndedByInterrupt(screenText: string): boolean { return screenText.includes('INTERRUPTED') && !screenText.includes('BUSY'); }
   detectRecovery(_chunk: string): CliRecoveryAction | null { return null; }
 }
 

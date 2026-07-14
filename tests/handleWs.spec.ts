@@ -36,7 +36,7 @@ class FakeCli implements CliAdapter {
   isAwaitingApproval(): boolean { return false; }
   looksBusy(): boolean { return false; }
   looksIdle(): boolean { return false; }
-  looksInterrupted(): boolean { return false; }
+  turnEndedByInterrupt(): boolean { return false; }
   detectRecovery(_c: string): CliRecoveryAction | null { return null; }
 }
 

@@ -342,10 +342,12 @@ export class ManagedSession extends EventEmitter {
     // was mid-repaint" failure mode.
     if (this.cli.looksBusy(screenText)) this.lastLooksBusyAt = Date.now();
     // A user esc-interrupt ends the turn but fires no Stop hook, so detect it
-    // from the screen. Gated on being mid-turn AND the busy indicator having
-    // cleared: during real work the spinner/`esc to interrupt` row is present,
-    // so a stray "Interrupted" in cc's output can't cut a live turn short.
-    if (this.state === 'processing' && this.cli.looksInterrupted(screenText) && !this.cli.looksBusy(screenText)) {
+    // from the screen. The adapter owns the discrimination: cc leaves the
+    // cancelled turn's stale spinner frames in the buffer, so this is a
+    // positional check (interrupt marker below the last live busy hint), not a
+    // bare "busy cleared" gate — that stale busy row was what kept esc-cancelled
+    // sessions stuck on 'processing'.
+    if (this.state === 'processing' && this.cli.turnEndedByInterrupt(screenText)) {
       if (this.idleTimer) { clearTimeout(this.idleTimer); this.idleTimer = null; }
       this.setState('idle', 'screen: interrupted by user (no Stop hook fires)');
       return;
