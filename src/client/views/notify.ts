@@ -21,12 +21,23 @@ export function setNotifyEnabled(on: boolean): void {
  * title flashing as a fallback when permission is absent, and clearing the
  * flash when the tab regains focus.
  *
+ * Fires only when the user is NOT already looking at cc-hub. `hasFocus()`
+ * (default `document.hasFocus()`) is true only when this tab is active AND the
+ * browser window is foreground; when it's true we suppress, so notifications
+ * arrive solely when focus is on another tab or outside the browser. The
+ * predicate is injectable so the render harness can drive it deterministically
+ * (Playwright page focus is unreliable across projects).
+ *
  * Detection of *when* to fire is no longer done here — the CC hook mechanism
  * (`Notification` hook + `Stop`/`StopFailure`) delivers authoritative signals
  * via the server's hook HTTP endpoint → WS push → messageRouter → fire().
  */
-export function mountNotifications(deps: AppDeps): { fire(id: string, kind: NotifyKind): void } {
+export function mountNotifications(
+  deps: AppDeps,
+  opts: { hasFocus?: () => boolean } = {},
+): { fire(id: string, kind: NotifyKind): void } {
   const { store, bus } = deps;
+  const hasFocus = opts.hasFocus ?? (() => document.hasFocus());
   const originalTitle = document.title;
   let titleFlashing = false;
 
@@ -53,6 +64,9 @@ export function mountNotifications(deps: AppDeps): { fire(id: string, kind: Noti
 
   function fire(id: string, kind: NotifyKind): void {
     if (!isNotifyEnabled()) return;
+    // Don't interrupt the user with a notification for a page they're already
+    // watching — suppress while cc-hub has focus, notify otherwise.
+    if (hasFocus()) return;
     const session = store.get().sessions.get(id);
     if (!session) return;
     const label = sessionLabel(session.info);

@@ -51,7 +51,10 @@ if (E2E) {
   mountRail(deps);
   // Mount the production notification delivery path so browser tests can drive
   // the same title-flash / Notification API behavior as hook WS messages.
-  const notify = mountNotifications(deps);
+  // Focus defaults to "not focused" so the delivery specs fire regardless of
+  // the real browser focus state; setPageFocus() flips it to test suppression.
+  let harnessHasFocus = false;
+  const notify = mountNotifications(deps, { hasFocus: () => harnessHasFocus });
   // Rail's session:activate bus event needs a listener — real app wires this
   // in setupSessionActivation(), which we can't import from here without also
   // pulling WebSocket. Provide the minimal wire: forward to attach.activate.
@@ -181,6 +184,12 @@ if (E2E) {
     /** Drive the production hook-notification delivery path. */
     fireNotify(id: string, kind: NotifyKind): void {
       notify.fire(id, kind);
+    },
+    /** Drive the focus predicate that gates notifications. Production reads
+     * document.hasFocus(); the harness sets it explicitly so suppress-when-
+     * focused is deterministic (Playwright page focus is unreliable). */
+    setPageFocus(focused: boolean): void {
+      harnessHasFocus = focused;
     },
   };
 

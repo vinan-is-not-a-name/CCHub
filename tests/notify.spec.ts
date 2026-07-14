@@ -29,6 +29,36 @@ test.describe('hook notification delivery', () => {
     await expect(page).toHaveTitle('CCHub — Render Harness');
   });
 
+  test('suppresses the title flash when the cc-hub page has focus', async ({ page }) => {
+    const id = await boot(page);
+    await page.evaluate(() => (window as any).__ccHarness.setPageFocus(true));
+    await page.evaluate((sid) => (window as any).__ccHarness.fireNotify(sid, 'ready'), id);
+    await expect(page).toHaveTitle('CCHub — Render Harness');
+    // Losing focus re-enables delivery: the same hook now flashes the title.
+    await page.evaluate(() => (window as any).__ccHarness.setPageFocus(false));
+    await page.evaluate((sid) => (window as any).__ccHarness.fireNotify(sid, 'ready'), id);
+    await expect(page).toHaveTitle(/CC ready: New session \(Notify Session\)/);
+  });
+
+  test('suppresses the desktop notification when the page has focus', async ({ page }) => {
+    await page.addInitScript(() => {
+      class FakeNotification {
+        static permission = 'granted';
+        static instances: FakeNotification[] = [];
+        constructor() { FakeNotification.instances.push(this); }
+        close() {}
+      }
+      (window as any).Notification = FakeNotification;
+    });
+    await page.goto('/harness.html?e2e=1');
+    await page.waitForFunction(() => '__ccHarness' in window);
+    const id = await page.evaluate(() =>
+      (window as any).__ccHarness.addSession({ id: 'focus-suppress', label: 'Focus Suppress' }) as string);
+    await page.evaluate(() => (window as any).__ccHarness.setPageFocus(true));
+    await page.evaluate((sid) => (window as any).__ccHarness.fireNotify(sid, 'ready'), id);
+    expect(await page.evaluate(() => (window as any).Notification.instances.length)).toBe(0);
+  });
+
   test('notification click activates the source session', async ({ page }) => {
     await page.addInitScript(() => {
       class FakeNotification {
