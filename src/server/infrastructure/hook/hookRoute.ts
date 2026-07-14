@@ -15,10 +15,12 @@ export interface HookRouteDeps {
  * Auth: Bearer token must match `authToken` (unless authToken is empty, which
  * means auth is disabled — dev/test mode).
  *
- * Body: JSON with a `kind` string field. The value is one of the CC hook event
- * names (`notification`, `stop`, `stop_failure`) but we don't validate the
- * specific value — future CC versions may add new events and we don't want to
- * reject them.
+ * Kind: the CC hook event name (`user_prompt_submit`, `notification`, `stop`,
+ * `stop_failure`). It may arrive either as a `?kind=` query param or as a
+ * `{ kind }` JSON body. The query form exists because on Windows the hook runs
+ * under PowerShell/cmd, where escaping a JSON body's inner quotes is unreliable;
+ * a query param sidesteps all shell quoting. We don't validate the specific
+ * value — future CC versions may add new events and we don't want to reject them.
  */
 export function makeHookRoute(deps: HookRouteDeps) {
   return async (request: FastifyRequest<{ Params: { sessionId: string } }>, reply: FastifyReply) => {
@@ -37,12 +39,16 @@ export function makeHookRoute(deps: HookRouteDeps) {
     }
 
     const body = request.body as Record<string, unknown> | undefined;
-    if (!body || typeof body !== 'object' || typeof body.kind !== 'string' || !body.kind) {
+    const query = request.query as { kind?: string } | undefined;
+    const queryKind = typeof query?.kind === 'string' ? query.kind : '';
+    const bodyKind = body && typeof body === 'object' && typeof body.kind === 'string' ? body.kind : '';
+    const kind = queryKind || bodyKind;
+    if (!kind) {
       reply.code(400).send({ error: 'missing or invalid "kind" field' });
       return;
     }
 
-    deps.dispatch(sessionId, body.kind);
+    deps.dispatch(sessionId, kind);
     reply.code(200).send({ ok: true });
   };
 }

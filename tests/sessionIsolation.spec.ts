@@ -96,7 +96,10 @@ test.describe('session isolation — runtime independence', () => {
     chA.emit('data', 'A output');
     chA.emit('exit', 0);
     expect(a.getInfo().state).toBe('exited');
-    expect(b.getInfo().state).toBe('processing');
+    // State is hook-driven now: a freshly-created session starts idle and only a
+    // UserPromptSubmit hook flips it to processing. B received no hook, so it
+    // stays at its own idle — A's data/exit never bleed across.
+    expect(b.getInfo().state).toBe('idle');
     expect(bStates).not.toContain('exited');
 
     // Destroying A kills only A's channel; B's stays live.

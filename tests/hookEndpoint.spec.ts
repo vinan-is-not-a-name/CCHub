@@ -57,6 +57,7 @@ class FakeCli implements CliAdapter {
   isAwaitingApproval(): boolean { return false; }
   looksBusy(): boolean { return false; }
   looksIdle(): boolean { return false; }
+  looksInterrupted(): boolean { return false; }
   detectRecovery(_chunk: string): CliRecoveryAction | null { return null; }
 }
 
@@ -123,6 +124,20 @@ test.describe('hook endpoint auth', () => {
     const res = await app.inject({ method: 'POST', url: '/hook/sess-1', payload: { kind: 'stop' } });
     expect(res.statusCode).toBe(200);
     expect(dispatched.length).toBe(1);
+  });
+
+  test('kind arrives via ?kind= query param with no body (the Windows curl path)', async () => {
+    const { app, dispatched } = buildApp(() => true, 'secret');
+    const res = await app.inject({ method: 'POST', url: '/hook/sess-1?kind=stop', headers: { authorization: 'Bearer secret' } });
+    expect(res.statusCode).toBe(200);
+    expect(dispatched).toEqual([{ sessionId: 'sess-1', kind: 'stop' }]);
+  });
+
+  test('query kind is used and no-body POST still 200s', async () => {
+    const { app, dispatched } = buildApp(() => true, '');
+    const res = await app.inject({ method: 'POST', url: '/hook/sess-1?kind=user_prompt_submit' });
+    expect(res.statusCode).toBe(200);
+    expect(dispatched).toEqual([{ sessionId: 'sess-1', kind: 'user_prompt_submit' }]);
   });
 
   test('cross-session: POST for session A does not dispatch to session B', async () => {

@@ -18,16 +18,23 @@ export interface StateDecision {
 }
 
 export class SessionStateMachine {
-  private lastStableScreen = '';
-
   constructor(
     private readonly cli: CliAdapter,
     private readonly timing = TIMING,
   ) {}
 
   /** Decide the next state from screen text (or null to leave it unchanged),
-   * with a human-readable reason. See {@link StateDecision}. */
-  detectStateExplained(screenText: string, currentState: SessionState, timeSinceUserInput: number): StateDecision {
+   * with a human-readable reason. See {@link StateDecision}.
+   *
+   * Turn boundaries (idle↔processing) are now driven by cc's hooks
+   * (UserPromptSubmit / Stop — see ManagedSession.emitHook), so this screen
+   * scraper NO LONGER flips to 'processing' on a generic screen change. Doing
+   * so was the root of the "stuck on running" bugs: the startup banner draw
+   * and a rewind repaint both change the screen without a turn actually
+   * running, and nothing on screen then flips it back. What remains here is
+   * only what hooks can't observe: the approval prompt (fast local detection,
+   * and the exit from it once the user answers). */
+  detectStateExplained(screenText: string, currentState: SessionState, _timeSinceUserInput: number): StateDecision {
     // Belt-and-braces guard: a real approval UI parks the CLI (it stops
     // spinning "esc to interrupt" because it's waiting on user, not
     // running a tool). If the screen matches an approval pattern AND
@@ -39,21 +46,15 @@ export class SessionStateMachine {
     // one such mid-turn hit fires a spurious "CC needs approval" toast
     // while cc is still working.
     if (this.cli.isAwaitingApproval(screenText) && !this.cli.looksBusy(screenText)) {
-      this.lastStableScreen = screenText;
       return { state: 'awaiting_approval', reason: 'approval-pattern (not busy)' };
     }
+    // We were parked at an approval prompt and it's no longer on screen → the
+    // user answered and cc resumed the turn. There's no hook for "permission
+    // granted, resuming", so this screen transition fills the gap.
     if (currentState === 'awaiting_approval') {
-      this.lastStableScreen = screenText;
       return { state: 'processing', reason: 'approval cleared → processing' };
     }
-    if (screenText !== this.lastStableScreen) {
-      this.lastStableScreen = screenText;
-      if (timeSinceUserInput > this.timing.inputSilenceMs) {
-        return { state: 'processing', reason: `screen changed (silence ${timeSinceUserInput}ms > ${this.timing.inputSilenceMs}ms)` };
-      }
-      return { state: null, reason: `screen changed within input-silence (${timeSinceUserInput}ms <= ${this.timing.inputSilenceMs}ms)` };
-    }
-    return { state: null, reason: 'screen unchanged' };
+    return { state: null, reason: 'no screen-scrape transition (turn boundaries are hook-driven)' };
   }
 
   /** Back-compat plain-state overload. New callers should prefer

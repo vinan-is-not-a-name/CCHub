@@ -60,6 +60,10 @@ test.describe('SessionHookProvisioner', () => {
     const grant = provisioner.provision('sess-win', sshLaunch('C:\\work', 'windows'));
     expect(grant.setupCommand).toContain('powershell.exe -NoProfile -Command');
     expect(grant.setupCommand).toContain('--noproxy \\`"*\\`"');
-    expect(grant.setupCommand).toContain('-d \\`"{\\\\\\`"kind\\\\\\`":\\\\\\`"stop\\\\\\`"}\\`"');
+    // curl.exe dodges the PowerShell curl→Invoke-WebRequest alias, and the event
+    // kind rides a ?kind= query param (no -d JSON body → no nested-quote hazard).
+    expect(grant.setupCommand).toContain('curl.exe -sS');
+    expect(grant.setupCommand).toContain('?kind=stop');
+    expect(grant.setupCommand).not.toContain('-d ');
   });
 });

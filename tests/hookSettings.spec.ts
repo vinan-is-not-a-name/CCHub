@@ -4,9 +4,15 @@ import { buildHookSettings, buildCurlCmd } from '../src/server/infrastructure/ho
 test.describe('buildHookSettings', () => {
   const base = { sessionId: 'abc-123', hookPort: 9876, token: 'tok_secret' };
 
-  test('produces Notification, Stop, and StopFailure hook entries', () => {
+  test('produces UserPromptSubmit, Notification, Stop, and StopFailure hook entries', () => {
     const s = buildHookSettings(base);
-    expect(Object.keys(s.hooks).sort()).toEqual(['Notification', 'Stop', 'StopFailure']);
+    expect(Object.keys(s.hooks).sort()).toEqual(['Notification', 'Stop', 'StopFailure', 'UserPromptSubmit']);
+  });
+
+  test('UserPromptSubmit matcher is empty (match all) and carries the turn-start kind', () => {
+    const s = buildHookSettings(base);
+    expect(s.hooks.UserPromptSubmit[0].matcher).toBe('');
+    expect(s.hooks.UserPromptSubmit[0].hooks[0].command).toContain('?kind=user_prompt_submit');
   });
 
   test('Notification matcher covers idle_prompt and permission_prompt', () => {
@@ -32,25 +38,34 @@ test.describe('buildHookSettings', () => {
     expect(cmd).toContain('Authorization: Bearer tok_secret');
   });
 
-  test('body contains the event kind', () => {
+  test('command carries the event kind as a query param', () => {
     const s = buildHookSettings(base);
-    expect(s.hooks.Notification[0].hooks[0].command).toContain('"kind":"notification"');
-    expect(s.hooks.Stop[0].hooks[0].command).toContain('"kind":"stop"');
-    expect(s.hooks.StopFailure[0].hooks[0].command).toContain('"kind":"stop_failure"');
+    expect(s.hooks.Notification[0].hooks[0].command).toContain('?kind=notification');
+    expect(s.hooks.Stop[0].hooks[0].command).toContain('?kind=stop');
+    expect(s.hooks.StopFailure[0].hooks[0].command).toContain('?kind=stop_failure');
   });
 
-  test('linux: uses single-quote noproxy and single-quote body', () => {
-    const s = buildHookSettings({ ...base, os: 'linux' });
-    const cmd = s.hooks.Stop[0].hooks[0].command;
-    expect(cmd).toContain("--noproxy '*'");
-    expect(cmd).toMatch(/-d '\{/);
-  });
-
-  test('windows: uses double-quote noproxy and escaped double-quote body', () => {
+  test('kind is a query param, not a JSON body (no shell-quoting hazard)', () => {
     const s = buildHookSettings({ ...base, os: 'windows' });
     const cmd = s.hooks.Stop[0].hooks[0].command;
+    expect(cmd).not.toContain('-d ');
+    expect(cmd).not.toContain('Content-Type');
+  });
+
+  test('linux: bare curl, single-quote noproxy, single-quoted url', () => {
+    const s = buildHookSettings({ ...base, os: 'linux' });
+    const cmd = s.hooks.Stop[0].hooks[0].command;
+    expect(cmd).toMatch(/^curl -sS/);
+    expect(cmd).toContain("--noproxy '*'");
+    expect(cmd).toContain("'http://127.0.0.1:9876/hook/abc-123?kind=stop'");
+  });
+
+  test('windows: curl.exe (bypasses PowerShell alias), double-quote noproxy, double-quoted url', () => {
+    const s = buildHookSettings({ ...base, os: 'windows' });
+    const cmd = s.hooks.Stop[0].hooks[0].command;
+    expect(cmd).toMatch(/^curl\.exe -sS/);
     expect(cmd).toContain('--noproxy "*"');
-    expect(cmd).toContain('-d "{\\"kind\\":\\"stop\\"}"');
+    expect(cmd).toContain('"http://127.0.0.1:9876/hook/abc-123?kind=stop"');
   });
 
   test('macos uses same quoting as linux', () => {
@@ -88,9 +103,16 @@ test.describe('buildCurlCmd', () => {
     expect(cmd).toContain('-X POST');
   });
 
-  test('Content-Type is application/json', () => {
-    const cmd = buildCurlCmd('http://x', 'tok', 'linux', 'stop');
-    expect(cmd).toContain('Content-Type: application/json');
+  test('kind travels as a query param with no JSON body', () => {
+    const cmd = buildCurlCmd('http://x/hook/s', 'tok', 'linux', 'stop');
+    expect(cmd).toContain('http://x/hook/s?kind=stop');
+    expect(cmd).not.toContain('-d ');
+    expect(cmd).not.toContain('Content-Type');
+  });
+
+  test('windows uses curl.exe to dodge the PowerShell curl→Invoke-WebRequest alias', () => {
+    const cmd = buildCurlCmd('http://x/hook/s', 'tok', 'windows', 'stop');
+    expect(cmd).toMatch(/^curl\.exe /);
   });
 
   test('token with special chars is passed verbatim in header', () => {

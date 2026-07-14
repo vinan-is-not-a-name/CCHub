@@ -16,9 +16,13 @@
   --muted: #8f8674;
   --accent: #5a4a37;
   --accent-2: #3d3324;
-  --success: #4a7c3a;
-  --warning: #b06e00;
-  --danger: #c14444;
+  /* These three also drive the session status dots — a green / orange / red
+     traffic light (done / running / disconnected), kept hue-distinct so the
+     states read apart at a glance (and under color-vision differences),
+     fully static, no animation. */
+  --success: #4a7c3a;  /* done / idle */
+  --warning: #b06e00;  /* running / processing (awaiting_approval adds a pulse) */
+  --danger: #c14444;   /* disconnected / exited */
   --shadow-1: 0 1px 2px rgba(80, 60, 30, 0.05);
   --shadow-2: 0 2px 6px rgba(80, 60, 30, 0.06), 0 1px 2px rgba(80, 60, 30, 0.04);
   --radius-sm: 6px;
@@ -139,8 +143,8 @@ body {
 
 .connection-badge::before {
   content: '';
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: var(--line-strong);
   flex: 0 0 auto;
@@ -148,7 +152,7 @@ body {
 
 .connection-badge.connecting::before { background: #9ca3af; }
 .connection-badge.idle::before { background: var(--success); }
-.connection-badge.processing::before { background: var(--accent); }
+.connection-badge.processing::before { background: var(--warning); }
 .connection-badge.awaiting_approval::before { background: var(--warning); }
 .connection-badge.exited::before { background: var(--danger); }
 
@@ -668,15 +672,15 @@ html[data-layout^="cols-"] .session-rail {
 }
 
 .tab-state-dot {
-  width: 7px;
-  height: 7px;
+  width: 9px;
+  height: 9px;
   flex: 0 0 auto;
   border-radius: 999px;
   background: var(--line-strong);
 }
 
 .tab.state-idle .tab-state-dot { background: var(--success); }
-.tab.state-processing .tab-state-dot { background: var(--accent); }
+.tab.state-processing .tab-state-dot { background: var(--warning); }
 .tab.state-awaiting_approval .tab-state-dot { background: var(--warning); animation: pulse-dot 1.4s ease-in-out infinite; }
 .tab.state-exited .tab-state-dot { background: var(--danger); }
 .tab.state-connecting .tab-state-dot { background: #9ca3af; }
@@ -826,15 +830,15 @@ html[data-layout^="cols-"] .session-rail {
 }
 
 .pane-state-dot {
-  width: 7px;
-  height: 7px;
+  width: 9px;
+  height: 9px;
   flex: 0 0 auto;
   border-radius: 999px;
   background: var(--line-strong);
 }
 
 .pane-head.state-idle .pane-state-dot { background: var(--success); }
-.pane-head.state-processing .pane-state-dot { background: var(--accent); }
+.pane-head.state-processing .pane-state-dot { background: var(--warning); }
 .pane-head.state-awaiting_approval .pane-state-dot { background: var(--warning); animation: pulse-dot 1.4s ease-in-out infinite; }
 .pane-head.state-exited .pane-state-dot { background: var(--danger); }
 
@@ -1890,7 +1894,8 @@ button:disabled {
     scroll-behavior: auto !important;
   }
 
-  .tab.state-awaiting_approval .tab-state-dot {
+  .tab.state-awaiting_approval .tab-state-dot,
+  .pane-head.state-awaiting_approval .pane-state-dot {
     animation: none;
   }
 

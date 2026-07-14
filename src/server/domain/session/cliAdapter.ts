@@ -70,6 +70,13 @@ export interface CliAdapter {
    * is only ever consulted for a positive flip, never for a negative
    * "still busy" decision. Pure predicate. */
   looksIdle(screenText: string): boolean;
+  /** Whether the screen shows cc's "turn was interrupted by the user" marker
+   * (the user pressed esc to cancel a running turn). cc's Stop hook does NOT
+   * fire on a user interrupt, so this is the only signal that flips an
+   * esc-cancelled turn back to idle. Consulted only while a turn is in
+   * progress and only when the busy indicator is gone, so a stray "Interrupted"
+   * in ongoing content can't end a live turn. Pure predicate. */
+  looksInterrupted(screenText: string): boolean;
   /** Look at a raw output chunk for CLI-level recovery hints (e.g. "no conversation found"). */
   detectRecovery(chunk: string): CliRecoveryAction | null;
 }

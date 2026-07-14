@@ -46,7 +46,13 @@ export class ManagedSession extends EventEmitter {
   readonly id: string;
   readonly createdAt = Date.now();
   readonly launch: ResolvedLaunch;
-  state: SessionState = 'processing';
+  // A freshly spawned session sits at cc's ready prompt waiting for the user —
+  // that is 'idle', not 'processing'. Turns are driven authoritatively by cc's
+  // UserPromptSubmit / Stop hooks (see emitHook), so we no longer start in
+  // 'processing' and guess our way out; the startup banner draw and a rewind
+  // repaint used to flip us to 'processing' with no matching turn-end, which is
+  // exactly the "stuck on running" bug users hit.
+  state: SessionState = 'idle';
   private screen: TerminalScreen;
   private lastUserInputAt = 0;
   /** Wall-clock of the most recent screen sample where `cli.looksBusy` matched
@@ -179,7 +185,48 @@ export class ManagedSession extends EventEmitter {
   kill(): void { this.channel.kill(); }
 
   recordUserInput() { this.lastUserInputAt = Date.now(); }
-  emitHook(kind: string): void { this.emit('hook', kind); }
+
+  /** Entry point for a CC hook event (POSTed to /hook/:id, dispatched here).
+   * Hooks are the authoritative turn-boundary signal — deterministic, unlike
+   * screen scraping. We drive session state from them first, then forward the
+   * event to the notification pipeline.
+   *
+   *   - user_prompt_submit → processing (a turn just started)
+   *   - stop / stop_failure → idle (the turn ended; back at the ready prompt)
+   *
+   * The `notification` hook is intentionally NOT wired to state: approval is
+   * detected from the screen (APPROVAL_PATTERN) the instant the prompt renders
+   * — that path was never the buggy one — and the terminal buffer is
+   * maintained server-side for SSH sessions too, so the screen scraper covers
+   * approval everywhere. Driving awaiting_approval from the hook as well would
+   * only race the screen (the hook can land a frame before the prompt finishes
+   * rendering). `notification` still forwards to the desktop-notification
+   * pipeline below. */
+  emitHook(kind: string): void {
+    this.applyHookState(kind);
+    // user_prompt_submit is a state-only signal. It must NOT reach the
+    // notification pipeline or the client would fire a "CC ready" ping on
+    // every prompt the user sends (hookKindToNotifyKind maps anything that
+    // isn't 'notification' to 'ready').
+    if (kind !== 'user_prompt_submit') this.emit('hook', kind);
+  }
+
+  private applyHookState(kind: string): void {
+    switch (kind) {
+      case 'user_prompt_submit':
+        this.setState('processing', 'hook: UserPromptSubmit (turn start)');
+        // Arm the idle safety-net timer so a turn that produces no further
+        // screen output still has the hard-timeout backstop (the Stop hook is
+        // the normal exit, this only matters if it never arrives).
+        this.armIdleCheck();
+        return;
+      case 'stop':
+      case 'stop_failure':
+        if (this.idleTimer) { clearTimeout(this.idleTimer); this.idleTimer = null; }
+        this.setState('idle', `hook: ${kind} (turn end)`);
+        return;
+    }
+  }
   getSnapshot() { return this.screen.snapshot(); }
 
   getInfo(): SessionInfo {
@@ -294,6 +341,15 @@ export class ManagedSession extends EventEmitter {
     // catches the "cc's tool call went quiet for 20s while its status line
     // was mid-repaint" failure mode.
     if (this.cli.looksBusy(screenText)) this.lastLooksBusyAt = Date.now();
+    // A user esc-interrupt ends the turn but fires no Stop hook, so detect it
+    // from the screen. Gated on being mid-turn AND the busy indicator having
+    // cleared: during real work the spinner/`esc to interrupt` row is present,
+    // so a stray "Interrupted" in cc's output can't cut a live turn short.
+    if (this.state === 'processing' && this.cli.looksInterrupted(screenText) && !this.cli.looksBusy(screenText)) {
+      if (this.idleTimer) { clearTimeout(this.idleTimer); this.idleTimer = null; }
+      this.setState('idle', 'screen: interrupted by user (no Stop hook fires)');
+      return;
+    }
     const decision = this.stateMachine.detectStateExplained(screenText, this.state, Date.now() - this.lastUserInputAt);
     if (decision.state) this.setState(decision.state, decision.reason);
     this.armIdleCheck();

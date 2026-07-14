@@ -32,6 +32,12 @@ const BUSY_TAIL_LINES = 8;
 // definitive idle marker from the mid-turn `thought for 3s` fragment which
 // only ever appears inside a parenthesised aggregate (never as its own line).
 const IDLE_SUMMARY_PATTERN = /^\s*\S\s+\w+ed\s+for\s+\d+s\s*$/m;
+// cc renders a user esc-interrupt as an "Interrupted" line (observed:
+// `⎿  Interrupted · What should Claude do instead?`, `Interrupted by user`).
+// The word alone is enough here because ManagedSession only consults this
+// while a turn is in progress AND the busy indicator has cleared, so a stray
+// "Interrupted" in mid-turn content can't trip it.
+const INTERRUPTED_PATTERN = /\bInterrupted\b/i;
 
 export class ClaudeCliAdapter implements CliAdapter {
   // The MCP config is registered so feed_image is discoverable, but the tool is
@@ -62,6 +68,10 @@ export class ClaudeCliAdapter implements CliAdapter {
 
   looksIdle(screenText: string): boolean {
     return IDLE_SUMMARY_PATTERN.test(screenText);
+  }
+
+  looksInterrupted(screenText: string): boolean {
+    return INTERRUPTED_PATTERN.test(screenText);
   }
 
   detectRecovery(chunk: string): CliRecoveryAction | null {

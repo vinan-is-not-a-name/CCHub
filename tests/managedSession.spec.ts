@@ -59,6 +59,11 @@ class FakeCli implements CliAdapter {
   looksIdle(screenText: string): boolean {
     return /^\s*\S\s+\w+ed\s+for\s+\d+s\s*$/m.test(screenText);
   }
+  // Interrupt marker — mirrors the real adapter. Tests inject a screen
+  // containing "Interrupted" to exercise the esc-cancel → idle path.
+  looksInterrupted(screenText: string): boolean {
+    return /\bInterrupted\b/i.test(screenText);
+  }
   // The no-conversation marker is what triggers the resume-fallback in the real adapter.
   detectRecovery(chunk: string): CliRecoveryAction | null {
     return chunk.includes('NOCONV') ? { kind: 'restart-without-resume' } : null;
@@ -130,9 +135,11 @@ test.describe('ManagedSession — channel wiring', () => {
     expect(makeSession().connector.spawns[0].command).not.toContain('-c');
   });
 
-  test('getInfo reflects launch metadata and starts in processing', () => {
+  test('getInfo reflects launch metadata and starts in idle', () => {
     const info = makeSession().session.getInfo();
-    expect(info.state).toBe('processing');
+    // A freshly spawned session sits at cc's ready prompt — idle, not
+    // processing. Turns begin only when cc's UserPromptSubmit hook fires.
+    expect(info.state).toBe('idle');
     expect(info.cwd).toBe('/tmp');
     expect(info.target).toBe('local');
     expect(info.label).toBe('test-label');
@@ -231,20 +238,103 @@ test.describe('ManagedSession — resume fallback recovery', () => {
   });
 });
 
+test.describe('ManagedSession — hook-driven state', () => {
+  test('UserPromptSubmit hook flips a fresh (idle) session to processing', () => {
+    const { session } = makeSession();
+    const states: string[] = [];
+    session.on('state', (s) => states.push(s));
+    expect(session.getInfo().state).toBe('idle');
+    session.emitHook('user_prompt_submit');
+    expect(session.getInfo().state).toBe('processing');
+    expect(states).toEqual(['processing']);
+  });
+
+  test('Stop hook flips processing back to idle (authoritative turn end)', () => {
+    const { session } = makeSession();
+    const states: string[] = [];
+    session.emitHook('user_prompt_submit');
+    session.on('state', (s) => states.push(s));
+    session.emitHook('stop');
+    expect(session.getInfo().state).toBe('idle');
+    expect(states).toEqual(['idle']);
+  });
+
+  test('StopFailure hook also ends the turn (idle)', () => {
+    const { session } = makeSession();
+    session.emitHook('user_prompt_submit');
+    session.emitHook('stop_failure');
+    expect(session.getInfo().state).toBe('idle');
+  });
+
+  test('Notification hook does not drive state (approval is detected from the screen)', () => {
+    const { session } = makeSession();
+    const states: string[] = [];
+    const hooks: string[] = [];
+    session.emitHook('user_prompt_submit');
+    session.on('state', (s) => states.push(s));
+    session.on('hook', (k) => hooks.push(k));
+    session.emitHook('notification');
+    // State is untouched by the hook — it stays wherever it was (processing).
+    expect(session.getInfo().state).toBe('processing');
+    expect(states).toEqual([]);
+    // But it IS forwarded to the desktop-notification pipeline.
+    expect(hooks).toEqual(['notification']);
+  });
+
+  test('user_prompt_submit does NOT reach the notification pipeline (would false-fire "ready")', () => {
+    const { session } = makeSession();
+    const hooks: string[] = [];
+    session.on('hook', (k) => hooks.push(k));
+    session.emitHook('user_prompt_submit');
+    session.emitHook('stop');
+    // Only stop is forwarded as a notification; the turn-start signal is state-only.
+    expect(hooks).toEqual(['stop']);
+  });
+});
+
 test.describe('ManagedSession — state transitions', () => {
   test('flips to idle once cc emits its per-turn summary line', async () => {
     const { session, connector } = makeSession();
     const states: string[] = [];
     session.on('state', (s) => states.push(s));
 
-    // A per-turn summary line — the definitive "cc finished this turn" marker.
-    // Under the "must observe a positive idle marker" rule this is what
-    // authorises the flip; a plain output line with no summary would keep the
-    // session in 'processing' until the hard-timeout safety net kicks in.
+    // Drive the turn start via the hook (screen changes no longer do this),
+    // then a per-turn summary line — the screen-side idle fallback for when
+    // the Stop hook is slow or absent.
+    session.emitHook('user_prompt_submit');
     connector.channels[0].emit('data', '✻ Worked for 10s\r\n');
     await new Promise((r) => setTimeout(r, TINY.idleAfterMs + 80));
 
     expect(states).toContain('idle');
+    connector.channels[0].emit('exit', 0); // cleanup
+  });
+
+  test('an esc-interrupt screen (busy cleared) flips processing → idle without a Stop hook', async () => {
+    const { session, connector } = makeSession();
+    const states: string[] = [];
+    session.on('state', (s) => states.push(s));
+
+    // Turn running (via hook), then the user hits esc: cc prints an
+    // "Interrupted" line and the busy spinner disappears. cc fires no Stop
+    // hook on interrupt, so the screen marker is what returns us to idle.
+    session.emitHook('user_prompt_submit');
+    connector.channels[0].emit('data', '\x1b[2J\x1b[H⎿  Interrupted by user\r\n');
+    // detectStateFromScreen runs in xterm's async write callback, so let the
+    // screen settle a tick before asserting the interrupt-driven flip.
+    await new Promise((r) => setTimeout(r, 20));
+    expect(session.getInfo().state).toBe('idle');
+    expect(states).toContain('idle');
+    connector.channels[0].emit('exit', 0); // cleanup
+  });
+
+  test('an "Interrupted" string mid-work (busy still showing) does NOT cut the turn short', async () => {
+    const { session, connector } = makeSession();
+    session.emitHook('user_prompt_submit');
+    // cc is actively working (busy hint present) and its output happens to
+    // contain the word Interrupted — must stay processing.
+    connector.channels[0].emit('data', 'log: request Interrupted; retrying... esc to interrupt');
+    await new Promise((r) => setTimeout(r, 20));
+    expect(session.getInfo().state).toBe('processing');
     connector.channels[0].emit('exit', 0); // cleanup
   });
 
@@ -258,6 +348,7 @@ test.describe('ManagedSession — state transitions', () => {
   test('does not flip to idle when a busy indicator was seen within the idle window', async () => {
     const { session, connector } = makeSession();
     const states: string[] = [];
+    session.emitHook('user_prompt_submit'); // enter processing (hook-driven)
     session.on('state', (s) => states.push(s));
 
     // Screen sample #1: busy indicator visible → refreshes lastLooksBusyAt.
@@ -283,6 +374,7 @@ test.describe('ManagedSession — state transitions', () => {
   test('flips to idle when busy has cleared AND a per-turn summary marker arrives', async () => {
     const { session, connector } = makeSession();
     const states: string[] = [];
+    session.emitHook('user_prompt_submit'); // enter processing (hook-driven)
     session.on('state', (s) => states.push(s));
 
     // Sample 1 — busy indicator visible; refreshes lastLooksBusyAt.
@@ -307,6 +399,7 @@ test.describe('ManagedSession — state transitions', () => {
   test('does not flip to idle when no positive idle marker has appeared', async () => {
     const { session, connector } = makeSession();
     const states: string[] = [];
+    session.emitHook('user_prompt_submit'); // enter processing (hook-driven)
     session.on('state', (s) => states.push(s));
 
     // Emit some output but no per-turn summary line. Under the old logic
@@ -329,6 +422,7 @@ test.describe('ManagedSession — state transitions', () => {
   test('flips to idle via hard timeout when neither busy nor idle marker ever appears', async () => {
     const { session, connector } = makeSession();
     const states: string[] = [];
+    session.emitHook('user_prompt_submit'); // enter processing (hook-driven)
     session.on('state', (s) => states.push(s));
 
     // Some ambiguous output so the idle-timer arms — no busy hint, no
