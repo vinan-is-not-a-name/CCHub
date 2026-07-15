@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { computeAnchor, AnchorTerm, AnchorCell, AnchorLine } from '../src/client/terminalIme.js';
+import { computeAnchor, pickRowHeight, AnchorTerm, AnchorCell, AnchorLine } from '../src/client/terminalIme.js';
 
 // computeAnchor is now purely "scan the buffer for the reverse-video caret
 // cell cc paints; use it if found, else fall back to the PTY cursor". No more
@@ -268,5 +268,50 @@ test.describe('computeAnchor', () => {
       },
     });
     expect(computeAnchor(term)).toEqual({ row: 2, col: 8 });
+  });
+});
+
+// pickRowHeight is the pixel-conversion half of the IME pin. The bug it guards:
+// under a fractional devicePixelRatio (a 125%/150%-scaled secondary monitor)
+// at a non-100% font, xterm lays each row out at a fractional pitch (e.g.
+// 17.3203px) while offsetHeight rounds it to 17. `applyAnchor` multiplies that
+// by the caret's row index, so a caret ~21 rows down drifted the preview ~6.7px
+// above the real caret. The fix reads the fractional getBoundingClientRect
+// height instead. 100% font / integer DPR keeps integer heights, so the two
+// agree there and this is a no-op.
+function fakeRow(rectHeight: number, offsetHeight: number) {
+  return { getBoundingClientRect: () => ({ height: rectHeight }), offsetHeight };
+}
+
+test.describe('pickRowHeight', () => {
+  // The regression: fractional rendered pitch, integer offsetHeight. Must
+  // return the fractional value, NOT the rounded-down integer.
+  test('fractional rect height + integer offsetHeight → returns fractional rect height', () => {
+    expect(pickRowHeight(fakeRow(17.3203125, 17))).toBe(17.3203125);
+  });
+
+  // Integer height case (100% font, or integer DPR): both agree, no behavior
+  // change vs the old offsetHeight path.
+  test('integer heights → returns that integer (no-op vs old behavior)', () => {
+    expect(pickRowHeight(fakeRow(18, 18))).toBe(18);
+  });
+
+  // Row exists but has not been laid out (rect height 0) — fall back to
+  // offsetHeight, matching pre-fix behavior for the not-yet-rendered case.
+  test('rect height 0 → falls back to offsetHeight', () => {
+    expect(pickRowHeight(fakeRow(0, 20))).toBe(20);
+  });
+
+  // No row element at all → the sane default. Guards against a null/undefined
+  // firstElementChild during teardown or before first paint.
+  test('null element → default 18', () => {
+    expect(pickRowHeight(null)).toBe(18);
+    expect(pickRowHeight(undefined)).toBe(18);
+  });
+
+  // Both measurements 0 (detached/hidden) → default rather than returning 0,
+  // which would collapse every row to the same Y.
+  test('both heights 0 → default 18', () => {
+    expect(pickRowHeight(fakeRow(0, 0))).toBe(18);
   });
 });

@@ -282,11 +282,33 @@ function scanInverseCells(term: AnchorTerm): { r: number; c: number; ch: string;
   return out;
 }
 
-function measureRowHeight(screen: HTMLElement): number {
-  const rows = screen.querySelector('.xterm-rows');
-  if (rows && rows.firstElementChild) {
-    const h = (rows.firstElementChild as HTMLElement).offsetHeight;
-    if (h > 0) return h;
+/**
+ * Choose the row height used to convert cc's caret row index into a pixel Y for
+ * the pinned IME preview (`row * rowHeight`).
+ *
+ * Prefer the fractional rendered height from getBoundingClientRect over
+ * offsetHeight. offsetHeight rounds to an integer, but xterm lays rows out at a
+ * fractional pitch under fractional devicePixelRatio (a 125%/150%-scaled
+ * monitor). That per-row rounding error multiplies by the row index, so the
+ * preview drifts upward — invisible near the top, ~6-7px off at the bottom
+ * input row where the caret actually sits. At integer heights (100% font, or an
+ * integer DPR) the two are equal, so this is a no-op there.
+ *
+ * Falls back to offsetHeight, then a sane default, when the row has not been
+ * laid out yet (rect height 0) — mirrors the pre-fix behavior for that case.
+ */
+export function pickRowHeight(
+  el: { getBoundingClientRect(): { height: number }; offsetHeight: number } | null | undefined,
+): number {
+  if (el) {
+    const rectH = el.getBoundingClientRect().height;
+    if (rectH > 0) return rectH;
+    if (el.offsetHeight > 0) return el.offsetHeight;
   }
   return 18;
+}
+
+function measureRowHeight(screen: HTMLElement): number {
+  const rows = screen.querySelector('.xterm-rows');
+  return pickRowHeight(rows?.firstElementChild as HTMLElement | null);
 }
