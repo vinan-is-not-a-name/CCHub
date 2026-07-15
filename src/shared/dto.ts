@@ -113,6 +113,14 @@ export interface TerminalSnapshot {
   rows: number;
   cursorX: number;
   cursorY: number;
+  /** Visible buffer tail, one string per row (most-recent 5000 rows). Each
+   * string carries inline SGR sequences (`CSI …m`) that reproduce the row's
+   * foreground/background/attributes, so a reattach restores cc's colored UI —
+   * diff / line-change highlights included — instead of waiting for cc to
+   * repaint (which is unreliable over SSH, where a refresh otherwise loses the
+   * highlight backgrounds until a resize forces a redraw). A row with no
+   * styling is emitted as plain text, byte-identical to what the terminal
+   * shows. The client replays these verbatim in loadSnapshot. */
   lines: string[];
   /** DEC private modes the source terminal had enabled when the snapshot
    * was taken, pre-encoded as a `CSI ?N;M;...h` sequence the client can
