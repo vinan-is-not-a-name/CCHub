@@ -4,9 +4,19 @@ import { buildHookSettings, buildCurlCmd } from '../src/server/infrastructure/ho
 test.describe('buildHookSettings', () => {
   const base = { sessionId: 'abc-123', hookPort: 9876, token: 'tok_secret' };
 
-  test('produces UserPromptSubmit, Notification, Stop, and StopFailure hook entries', () => {
+  test('produces UserPromptSubmit, PreToolUse, PostToolUse, Notification, Stop, and StopFailure hook entries', () => {
     const s = buildHookSettings(base);
-    expect(Object.keys(s.hooks).sort()).toEqual(['Notification', 'Stop', 'StopFailure', 'UserPromptSubmit']);
+    expect(Object.keys(s.hooks).sort()).toEqual(
+      ['Notification', 'PostToolUse', 'PreToolUse', 'Stop', 'StopFailure', 'UserPromptSubmit'],
+    );
+  });
+
+  test('PreToolUse and PostToolUse are match-all heartbeats carrying kind=tool_active', () => {
+    const s = buildHookSettings(base);
+    expect(s.hooks.PreToolUse[0].matcher).toBe('');
+    expect(s.hooks.PostToolUse[0].matcher).toBe('');
+    expect(s.hooks.PreToolUse[0].hooks[0].command).toContain('?kind=tool_active');
+    expect(s.hooks.PostToolUse[0].hooks[0].command).toContain('?kind=tool_active');
   });
 
   test('UserPromptSubmit matcher is empty (match all) and carries the turn-start kind', () => {

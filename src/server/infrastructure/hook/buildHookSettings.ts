@@ -14,12 +14,22 @@ export interface HookSettings {
  * POST back to cc-remote's hook endpoint when a turn starts/completes or CC
  * needs input.
  *
- * Four events:
+ * Events:
  *   - UserPromptSubmit: the user submitted a prompt — a turn just STARTED.
  *     This is the authoritative "processing" signal; without it the server
  *     has to guess a turn began from screen changes, which mis-fires on the
  *     startup banner draw and on a rewind repaint (both strand the dot on
  *     "running" with no matching turn end).
+ *   - PreToolUse / PostToolUse: cc is mid-turn, about to run / just ran a tool.
+ *     These fire REPEATEDLY during an active turn (once per tool call), so they
+ *     serve as a "still processing" heartbeat that RE-ASSERTS the processing
+ *     state. UserPromptSubmit alone is a single point of failure: if that one
+ *     POST is dropped (tunnel blip, curl miss, out-of-order arrival) the turn
+ *     never leaves 'idle' and the dot stays green while cc works. The heartbeat
+ *     turns that single POST into N independent chances to correct the state —
+ *     any one arriving flips idle→processing. They carry `kind=tool_active` and,
+ *     like UserPromptSubmit, are state-only (must NOT reach the notification
+ *     pipeline, or every tool call would fire a "ready" toast).
  *   - Notification (idle_prompt, permission_prompt): CC is waiting for user.
  *   - Stop: CC finished responding normally.
  *   - StopFailure: CC stopped due to API error / rate limit.
@@ -46,6 +56,14 @@ export function buildHookSettings(input: HookSettingsInput): HookSettings {
       UserPromptSubmit: [{
         matcher: '',
         hooks: [{ type: 'command', command: buildCurlCmd(url, token, os, 'user_prompt_submit') }],
+      }],
+      PreToolUse: [{
+        matcher: '',
+        hooks: [{ type: 'command', command: buildCurlCmd(url, token, os, 'tool_active') }],
+      }],
+      PostToolUse: [{
+        matcher: '',
+        hooks: [{ type: 'command', command: buildCurlCmd(url, token, os, 'tool_active') }],
       }],
       Notification: [{
         matcher: 'idle_prompt,permission_prompt',

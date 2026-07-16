@@ -299,6 +299,42 @@ test.describe('ManagedSession — hook-driven state', () => {
     // Only stop is forwarded as a notification; the turn-start signal is state-only.
     expect(hooks).toEqual(['stop']);
   });
+
+  test('tool_active heartbeat corrects a stuck-idle session to processing', () => {
+    // The idle→processing black hole: if the one UserPromptSubmit POST is
+    // dropped the session stays idle while cc works. A mid-turn tool_active
+    // POST (PreToolUse / PostToolUse) is the redundant path back out.
+    const { session } = makeSession();
+    const states: string[] = [];
+    session.on('state', (s) => states.push(s));
+    expect(session.getInfo().state).toBe('idle');
+    session.emitHook('tool_active');
+    expect(session.getInfo().state).toBe('processing');
+    expect(states).toEqual(['processing']);
+  });
+
+  test('tool_active is idempotent when already processing (no duplicate state emit)', () => {
+    const { session } = makeSession();
+    session.emitHook('user_prompt_submit');
+    const states: string[] = [];
+    session.on('state', (s) => states.push(s));
+    // Repeated tool-use heartbeats within a turn must not re-emit 'processing'.
+    session.emitHook('tool_active');
+    session.emitHook('tool_active');
+    expect(session.getInfo().state).toBe('processing');
+    expect(states).toEqual([]);
+  });
+
+  test('tool_active does NOT reach the notification pipeline (would false-fire "ready")', () => {
+    const { session } = makeSession();
+    const hooks: string[] = [];
+    session.on('hook', (k) => hooks.push(k));
+    session.emitHook('user_prompt_submit');
+    session.emitHook('tool_active');
+    session.emitHook('stop');
+    // The heartbeat is state-only; only stop is forwarded as a notification.
+    expect(hooks).toEqual(['stop']);
+  });
 });
 
 test.describe('ManagedSession — state transitions', () => {
