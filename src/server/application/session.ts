@@ -5,7 +5,7 @@ import * as path from 'path';
 import { SessionState, SessionInfo, ResolvedLaunch } from '../../shared/protocol.js';
 import { adapterFor, ShellAdapter, EffectiveLaunch } from '../infrastructure/shell/shellAdapter.js';
 import { Connector, ConnectorChannel, makeConnector } from '../infrastructure/transport/connector.js';
-import { TerminalScreen, snapshotToText } from '../infrastructure/terminal/terminalScreen.js';
+import { TerminalScreen } from '../infrastructure/terminal/terminalScreen.js';
 import { CliAdapter, TIMING } from '../domain/session/cliAdapter.js';
 import { ClaudeCliAdapter } from '../domain/session/ClaudeCliAdapter.js';
 import { SessionStateMachine } from '../domain/session/StateMachine.js';
@@ -370,8 +370,11 @@ export class ManagedSession extends EventEmitter {
   }
 
   private readScreenText(): string {
-    const snapshot = this.screen.snapshot();
-    return snapshotToText({ ...snapshot, cursorX: 0, cursorY: 0 }).replace(/\s+$/g, '');
+    // Plain, SGR-free projection — the state scraper matches literal
+    // substrings ("esc to interrupt", "Worked for Ns"), which the inline ANSI
+    // that snapshot() now embeds would break. plainText() is also cheaper than
+    // a full snapshot() and this runs on every output frame.
+    return this.screen.plainText().replace(/\s+$/g, '');
   }
 
   /** (Re)arm the idle poller. The timer fires after `idleDelayMs` of silence,

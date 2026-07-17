@@ -125,4 +125,63 @@ test.describe('TerminalScreen.snapshot', () => {
     expect(snap.cursorY).toBeGreaterThanOrEqual(0);
     expect(snap.cursorY).toBeLessThanOrEqual(snap.lines.length);
   });
+
+  // Color fidelity. cc paints diff / line-change highlights as SGR background
+  // colors. The pre-fix snapshot used translateToString(), which drops ALL SGR,
+  // so a page refresh replayed colorless text and the highlights vanished —
+  // worst on SSH sessions, where cc doesn't promptly repaint on reattach so the
+  // colorless replay is what the user is left staring at. snapshot() now
+  // serializes per-cell SGR so the colors survive the round-trip.
+
+  test('背景色(256-color palette)序列化进 snapshot 行', async () => {
+    const screen = new TerminalScreen(80, 5);
+    await writeAll(screen, ['\x1b[48;5;22mdiff added\x1b[0m\r\n']);
+    const snap = screen.snapshot();
+    expect(snap.lines[0]).toContain('48;5;22');
+    expect(snap.lines[0]).toContain('diff added');
+  });
+
+  test('前景色 + 背景色同时保留', async () => {
+    const screen = new TerminalScreen(80, 5);
+    await writeAll(screen, ['\x1b[38;5;15;48;5;1mX\x1b[0m\r\n']);
+    const snap = screen.snapshot();
+    expect(snap.lines[0]).toContain('38;5;15');
+    expect(snap.lines[0]).toContain('48;5;1');
+  });
+
+  test('truecolor RGB 背景解包为 48;2;R;G;B', async () => {
+    const screen = new TerminalScreen(80, 5);
+    await writeAll(screen, ['\x1b[48;2;10;20;30mY\x1b[0m\r\n']);
+    const snap = screen.snapshot();
+    expect(snap.lines[0]).toContain('48;2;10;20;30');
+  });
+
+  test('inverse 空格(cc 反显光标 / 高亮块)不被当作空白裁掉', async () => {
+    const screen = new TerminalScreen(80, 5);
+    await writeAll(screen, ['\x1b[7m \x1b[27m']);
+    const snap = screen.snapshot();
+    expect(snap.lines[0]).toContain('7m');
+    expect(snap.lines[0].length).toBeGreaterThan(0);
+  });
+
+  test('EL(erase-to-EOL)带背景色时,行尾填充色保留到右边缘', async () => {
+    const screen = new TerminalScreen(20, 5);
+    // 红底 + 擦到行尾:cc 的整行 diff 高亮就是这样铺满宽度的
+    await writeAll(screen, ['\x1b[41mERR\x1b[K\r\n']);
+    const snap = screen.snapshot();
+    expect(snap.lines[0]).toContain('48;5;1');
+    expect(snap.lines[0]).toContain('ERR');
+    // 去掉 SGR 后可见字符应接近整行宽度(trailing 带色空格未被裁),
+    // 证明高亮铺满而不是止于 "ERR"
+    const visible = snap.lines[0].replace(/\x1b\[[0-9;]*m/g, '');
+    expect(visible.length).toBeGreaterThan(10);
+  });
+
+  test('全 default 文本行序列化后与纯文本完全一致(无 SGR,向后兼容)', async () => {
+    const screen = new TerminalScreen(80, 5);
+    await writeAll(screen, ['plain hello world\r\n']);
+    const snap = screen.snapshot();
+    expect(snap.lines[0]).toBe('plain hello world');
+    expect(snap.lines[0]).not.toContain('\x1b');
+  });
 });
