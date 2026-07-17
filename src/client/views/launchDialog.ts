@@ -70,13 +70,19 @@ export function mountLaunchDialog(deps: AppDeps, params: URLSearchParams) {
     const serverId = preset ? preset.serverId : initialServerId();
     fillSelect(el<HTMLSelectElement>('launch-server'), config.servers, serverId);
     fillSelect(el<HTMLSelectElement>('launch-profile'), config.profiles, preset?.anthropicProfileId ?? config.defaults.profileId);
-    fillSelect(el<HTMLSelectElement>('launch-proxy'), config.proxies, preset?.proxyId ?? val('launch-proxy'), true, 'field.none');
+    // Reset proxy to the preset's own value (or None). Falling back to the
+    // current form value here would leak the previous preset's proxy into a
+    // preset that doesn't define one — and it's read back verbatim at create.
+    fillSelect(el<HTMLSelectElement>('launch-proxy'), config.proxies, preset?.proxyId ?? '', true, 'field.none');
     setVal('launch-resume', preset?.resume ?? 'continue');
     cwdSuggest.hide();
     setVal('launch-cwd', preset ? preset.cwd : params.get('sshCwd') ?? params.get('cwd') ?? '');
     setChecked('launch-skip-permissions', preset?.skipPermissions === true);
     setVal('launch-effort', preset?.effort ?? '');
-    setAdvancedOpen(preset ? (preset.skipPermissions === true || Boolean(preset.proxyId) || Boolean(preset.effort)) : false);
+    // Always start collapsed here: the launch dialog is "pick a preset and go",
+    // so auto-opening for only some presets reads as inconsistent. The preset's
+    // advanced values still apply on create — this is purely what's shown.
+    setAdvancedOpen(false);
     updateBadge(preset?.name);
     void condaSelect.refresh(serverId, preset?.condaEnv ?? '');
   }
