@@ -204,11 +204,11 @@ export class ManagedSession extends EventEmitter {
    * pipeline below. */
   emitHook(kind: string): void {
     this.applyHookState(kind);
-    // user_prompt_submit is a state-only signal. It must NOT reach the
-    // notification pipeline or the client would fire a "CC ready" ping on
-    // every prompt the user sends (hookKindToNotifyKind maps anything that
-    // isn't 'notification' to 'ready').
-    if (kind !== 'user_prompt_submit') this.emit('hook', kind);
+    // user_prompt_submit and tool_active are state-only signals. They must NOT
+    // reach the notification pipeline or the client would fire a "CC ready"
+    // ping on every prompt and every tool call (hookKindToNotifyKind maps
+    // anything that isn't 'notification' to 'ready').
+    if (kind !== 'user_prompt_submit' && kind !== 'tool_active') this.emit('hook', kind);
   }
 
   private applyHookState(kind: string): void {
@@ -218,6 +218,18 @@ export class ManagedSession extends EventEmitter {
         // Arm the idle safety-net timer so a turn that produces no further
         // screen output still has the hard-timeout backstop (the Stop hook is
         // the normal exit, this only matters if it never arrives).
+        this.armIdleCheck();
+        return;
+      case 'tool_active':
+        // Mid-turn heartbeat (PreToolUse / PostToolUse). cc is provably still
+        // working: a tool call is running or its result must return to the
+        // model for at least one more inference round before a turn can end.
+        // This re-asserts 'processing' on every tool call, so a single dropped
+        // UserPromptSubmit POST no longer strands the session on idle — any one
+        // of the N tool-use POSTs corrects idle→processing. setState is a no-op
+        // when already processing (the state-changed gate), so the heartbeat is
+        // idempotent and emits no duplicate 'state' events.
+        this.setState('processing', 'hook: tool-use heartbeat');
         this.armIdleCheck();
         return;
       case 'stop':
