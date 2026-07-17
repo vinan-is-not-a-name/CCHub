@@ -29,23 +29,49 @@ function assertSafeHost(host: string): void {
   }
 }
 
+/** The XShell key-store basename that the cc-remote private key gets imported
+ * under (see infrastructure/shell/sshKeys.ts — the local key file is
+ * `~/.cchub/keys/cchub_ed25519`, and XShell's importer keys it by that
+ * basename). `UserKey=` takes this NAME, never a disk path — a disk path is
+ * silently ignored and XShell falls back to a password prompt. */
+const CCHUB_XSHELL_KEY_NAME = 'cchub_ed25519';
+
+/** AuthMethodList sampled from a real GUI-built public-key session: only the
+ * public-key method (code 11) is enabled, so login is silent when the key is
+ * present in the store + remote authorized_keys. End-to-end verified. */
+const AUTH_LIST_PUBKEY = '00,11,20,30';
+
+/** AuthMethodList that enables the interactive password method — XShell shows
+ * its password dialog, the user types once, and (because we do NOT auto-feed
+ * the password) RemoteCommand still runs, so auto-cd works. This is XShell's
+ * historical default for password sessions. */
+const AUTH_LIST_PASSWORD = '01,10,20,30';
+
 /** Compose the INI body of a one-shot `.xsh` session file that XShell opens to
  * the given remote cwd. The critical trick: `[CONNECTION:SSH] RemoteCommand`
  * is the only field that actually lands SSH sessions in `<cwd>` — the same-name
- * `InitRemoteDirectory` only affects SFTP/FTP. Password /
- * Passphrase are always left empty because XShell's stored encrypted values
- * carry a per-machine salt we can't reproduce; when we want silent login we
- * override them from the command-line URL (see buildXshellUrl / revealXshell).
- * UserKey is a plain path so private-key auth is fully hands-off. */
-export function buildXshellSessionFile(server: SshServerProfile, cwd: string): string {
+ * `InitRemoteDirectory` only affects SFTP/FTP.
+ *
+ * Password / Passphrase are ALWAYS left empty and we NEVER pass a credential
+ * on the command line. That's deliberate: auto-feeding a password (via a
+ * `-url ssh://user:pass@host` override) makes XShell skip RemoteCommand
+ * entirely — which was the root cause of auto-cd silently not working. With no
+ * auto-fed credential, both auth paths below run RemoteCommand.
+ *
+ * `certInstalled` picks the auth path:
+ *  - true  → the cc-remote public key is in the server's authorized_keys, so
+ *    we point `UserKey` at the imported key and enable only the public-key
+ *    method → silent, promptless login + auto-cd.
+ *  - false → we can't rely on the key, so we emit no UserKey and enable the
+ *    password method → XShell prompts once, the user types their password, and
+ *    RemoteCommand still lands them in cwd. */
+export function buildXshellSessionFile(server: SshServerProfile, cwd: string, certInstalled: boolean): string {
   assertSafeIniValue(server.host, 'host');
   assertSafeIniValue(server.username, 'username');
   assertSafeIniValue(cwd, 'cwd');
   const remoteCommand = `cd '${cwd.replace(/'/g, `'\\''`)}' && exec $SHELL -l`;
-  const userKey = server.auth.method === 'privateKeyPath' && server.auth.privateKeyPath
-    ? server.auth.privateKeyPath
-    : '';
-  if (userKey) assertSafeIniValue(userKey, 'privateKeyPath');
+  const userKey = certInstalled ? CCHUB_XSHELL_KEY_NAME : '';
+  const authMethodList = certInstalled ? AUTH_LIST_PUBKEY : AUTH_LIST_PASSWORD;
   return [
     '[SessionInfo]',
     'Version=8.1',
@@ -61,7 +87,7 @@ export function buildXshellSessionFile(server: SshServerProfile, cwd: string): s
     'Password=',
     `UserKey=${userKey}`,
     'Passphrase=',
-    'AuthMethodList=01,10,20,30',
+    `AuthMethodList=${authMethodList}`,
     'UseExpectSend=0',
     'UseInitScript=0',
     '[TERMINAL]',
@@ -98,22 +124,6 @@ export function buildXftpUrl(server: SshServerProfile, cwd: string): string {
   return `sftp://${userinfo}@${server.host}:${server.port}${abs}`;
 }
 
-/** Compose the `ssh://user:password@host:port` URL that XShell's `-url` flag
- * takes when we want to bypass the password prompt. Same shape as buildXftpUrl
- * but SSH protocol and no path segment (XShell URL doesn't carry cwd — that's
- * what the paired `.xsh` file's RemoteCommand is for). Returns null when there
- * is no password to inline (private-key auth, or password-auth with an empty
- * password field), in which case revealXshell falls back to opening the `.xsh`
- * through the file association and lets XShell prompt if needed. */
-export function buildXshellUrl(server: SshServerProfile): string | null {
-  if (server.auth.method !== 'password' || !server.auth.password) return null;
-  const user = encodeURIComponent(server.username);
-  const pass = encodeURIComponent(server.auth.password);
-  // See buildXftpUrl on host validation.
-  assertSafeHost(server.host);
-  return `ssh://${user}:${pass}@${server.host}:${server.port}`;
-}
-
 /** Options for the reveal helpers. `exePath` comes from stored appSettings
  * (Settings dialog), or is undefined when the user hasn't configured / detected
  * one yet; falling back to the bare exe name leans on PATH. `onError` fires
@@ -127,30 +137,29 @@ export interface RevealSpawnOptions {
 
 /** Spawn XShell against a one-shot `.xsh` file, then schedule deletion. We
  * write to `%TEMP%` and hand the path to XShell so `RemoteCommand` (the
- * auto-cwd hook) is in play. When the server has a password we can inline,
- * we also pass `-url ssh://user:password@host:port` — per XShell's docs, URL
- * properties override the ones in the paired session file, so the password
- * from the URL wins over the empty Password= field, and no prompt appears.
- * When there's no inline-able password (private-key auth, or empty password)
- * we open through `explorer.exe` so the file association still works even if
- * `Xshell.exe` isn't on PATH. `unlinkSync` fires 30s later — long enough for
- * XShell to have read the file, short enough that a crash doesn't leave the
- * (credential-adjacent) file lying around forever. */
-export function revealXshell(server: SshServerProfile, cwd: string, opts: RevealSpawnOptions = {}): void {
+ * auto-cwd hook) is in play.
+ *
+ * We NEVER pass a credential on the command line: a `-url ssh://user:pass@host`
+ * override makes XShell skip RemoteCommand, which broke auto-cd. `certInstalled`
+ * (probed at call time — is the cc-remote public key in the server's
+ * authorized_keys?) instead selects the auth path baked into the `.xsh`:
+ *   - true  → public-key auth, silent login, auto-cd.
+ *   - false → XShell shows its password prompt; the user types once and, since
+ *     nothing was auto-fed, RemoteCommand still runs → auto-cd after login.
+ *
+ * The configured `exePath` takes priority; otherwise we open through
+ * `explorer.exe` so the `.xsh` file association works even when `Xshell.exe`
+ * isn't on PATH. `unlinkSync` fires 30s later — long enough for XShell to have
+ * read the file, short enough that a crash doesn't leave it lying around. */
+export function revealXshell(server: SshServerProfile, cwd: string, certInstalled: boolean, opts: RevealSpawnOptions = {}): void {
   const path = join(tmpdir(), `cchub-reveal-${randomBytes(6).toString('hex')}.xsh`);
   try {
-    writeFileSync(path, buildXshellSessionFile(server, cwd), 'utf8');
+    writeFileSync(path, buildXshellSessionFile(server, cwd, certInstalled), 'utf8');
   } catch (err) {
     opts.onError?.(`couldn't write temp session file: ${describeError(err)}`);
     return;
   }
-  const url = buildXshellUrl(server);
-  // Configured path takes priority. When no path is configured *and* we need
-  // to inline a URL password we still spawn `Xshell.exe` directly (URL
-  // override only works via the CLI); otherwise fall back to explorer's
-  // file association, which is more forgiving of unusual install layouts.
-  const exe = opts.exePath ?? (url ? 'Xshell.exe' : 'explorer.exe');
-  const args = url ? ['-url', url, path] : [path];
+  const exe = opts.exePath ?? 'explorer.exe';
   // Missing configured path is a common misconfiguration — a specific error
   // helps the user open Settings and fix it instead of seeing nothing happen.
   if (opts.exePath && !existsSync(opts.exePath)) {
@@ -159,7 +168,7 @@ export function revealXshell(server: SshServerProfile, cwd: string, opts: Reveal
     return;
   }
   try {
-    const child = spawn(exe, args, { detached: true, stdio: 'ignore' });
+    const child = spawn(exe, [path], { detached: true, stdio: 'ignore' });
     child.on('error', (err) => opts.onError?.(`XShell launch failed: ${describeError(err)}`));
     child.unref();
   } catch (err) {

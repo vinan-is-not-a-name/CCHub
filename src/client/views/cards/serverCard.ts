@@ -3,6 +3,7 @@ import type { AppDeps } from '../../deps.js';
 import type { SafeServerProfile } from '../../../shared/protocol.js';
 import { createCardController } from './cardController.js';
 import { buildServerSaveMessage, type ServerFormValues } from './cardSerializers.js';
+import { t } from '../../i18n.js';
 
 function readServerForm(): ServerFormValues {
   return {
@@ -19,6 +20,8 @@ function readServerForm(): ServerFormValues {
 }
 
 export function mountServerCard(deps: AppDeps) {
+  const sshkey = mountServerSshKey(deps);
+
   return createCardController(deps, {
     prefix: 'server',
     modeKey: 'serverMode',
@@ -72,8 +75,91 @@ export function mountServerCard(deps: AppDeps) {
       } else {
         passwordInput.placeholder = '';
       }
+      sshkey.render(editing && server?.kind === 'ssh' ? server.id : null);
     },
   });
+}
+
+/** The "install cc-remote key on this server" control. Only meaningful when
+ * editing a saved SSH server, so `render(serverId)` shows the row + probes
+ * install state for that server, and `render(null)` hides it (new server,
+ * local server, or create mode). A monotonic requestId guards against a stale
+ * probe/install response landing after the user has switched to a different
+ * server — only the response matching the row's current server is applied. */
+function mountServerSshKey(deps: AppDeps) {
+  const row = el<HTMLDivElement>('server-sshkey-row');
+  const button = el<HTMLButtonElement>('server-sshkey-install');
+  const status = el<HTMLParagraphElement>('server-sshkey-status');
+
+  // The server the control currently represents, and the id of the in-flight
+  // request. A response is applied only when both its serverId matches the
+  // shown server AND its requestId is the latest one we issued.
+  let shownServerId: string | null = null;
+  let pendingRequestId: string | null = null;
+
+  function issue(): string {
+    const id = String(Date.now()) + Math.random().toString(36).slice(2, 6);
+    pendingRequestId = id;
+    return id;
+  }
+
+  function setButtonState(opts: { label: string; disabled: boolean }): void {
+    button.textContent = opts.label;
+    button.disabled = opts.disabled;
+  }
+
+  function render(serverId: string | null): void {
+    if (serverId === shownServerId) return;
+    shownServerId = serverId;
+    pendingRequestId = null;
+    status.hidden = true;
+    status.textContent = '';
+    if (!serverId) {
+      row.hidden = true;
+      return;
+    }
+    row.hidden = false;
+    setButtonState({ label: t('server.sshkey.checking'), disabled: true });
+    deps.conn.send({ type: 'config.sshkey.check', serverId, requestId: issue() });
+  }
+
+  button.onclick = () => {
+    if (!shownServerId) return;
+    setButtonState({ label: t('server.sshkey.installing'), disabled: true });
+    status.hidden = true;
+    deps.conn.send({ type: 'config.sshkey.install', serverId: shownServerId, requestId: issue() });
+  };
+
+  function showStatus(text: string): void {
+    status.textContent = text;
+    status.hidden = false;
+  }
+
+  deps.conn.onMessage((msg) => {
+    if (msg.type === 'config.sshkey.checked') {
+      if (msg.serverId !== shownServerId || msg.requestId !== pendingRequestId) return;
+      pendingRequestId = null;
+      if (msg.installed === true) {
+        setButtonState({ label: t('server.sshkey.installed'), disabled: true });
+      } else {
+        // installed === false (not present) OR null (probe failed): keep the
+        // button actionable. A failed probe shouldn't wrongly disable install.
+        setButtonState({ label: t('server.sshkey.install'), disabled: false });
+      }
+    } else if (msg.type === 'config.sshkey.installed') {
+      if (msg.serverId !== shownServerId || msg.requestId !== pendingRequestId) return;
+      pendingRequestId = null;
+      if (msg.ok) {
+        setButtonState({ label: t('server.sshkey.installed'), disabled: true });
+        showStatus(t(msg.alreadyInstalled ? 'server.sshkey.alreadyInstalled' : 'server.sshkey.installedNow'));
+      } else {
+        setButtonState({ label: t('server.sshkey.install'), disabled: false });
+        showStatus(t('server.sshkey.failed').replace('{error}', msg.error ?? ''));
+      }
+    }
+  });
+
+  return { render };
 }
 
 /**

@@ -160,6 +160,10 @@
           <label class="field"><span data-i18n="field.password">Password</span> <input id="server-password" type="password"></label>
           <label class="field"><span data-i18n="server.privateKey">Private key path</span> <input id="server-key"></label>
           <label class="check-field"><input id="server-clear-password" type="checkbox"> <span data-i18n="server.clearPassword">Clear saved password</span></label>
+          <div id="server-sshkey-row" class="settings-path-row" hidden>
+            <button id="server-sshkey-install" class="secondary-button wide-button" type="button" data-i18n="server.sshkey.install" data-i18n-title="server.sshkey.hint" title="Lets XShell open this server without a password prompt.">Install cc-remote key</button>
+          </div>
+          <p id="server-sshkey-status" class="hint" aria-live="polite" hidden></p>
           <div id="server-save-error" class="inline-result error" role="alert" hidden></div>
           <div class="card-actions"><button id="server-delete" class="danger-button" type="button" data-i18n="server.delete">Delete</button><button id="server-copy" class="secondary-button" type="button" data-i18n="config.copy">Copy</button><button id="server-save" class="primary-button" type="button" data-i18n="server.save.create">Create server</button></div>
         </section>
@@ -210,6 +214,7 @@
           <button type="button" role="tab" class="tab-link" data-tab="general" aria-selected="true" data-i18n="settings.tab.general">General</button>
           <button type="button" role="tab" class="tab-link" data-tab="notify" aria-selected="false" tabindex="-1" data-i18n="settings.tab.notify">Notifications</button>
           <button type="button" role="tab" class="tab-link" data-tab="remote" aria-selected="false" tabindex="-1" data-i18n="settings.tab.remote">Remote clients</button>
+          <button type="button" role="tab" class="tab-link" data-tab="sshkey" aria-selected="false" tabindex="-1" data-i18n="settings.tab.sshkey">SSH key</button>
         </nav>
         <div class="tab-panels">
         <section class="settings-card" data-tab-panel="general" role="tabpanel">
@@ -241,6 +246,19 @@
             <button id="settings-vscode-browse" class="secondary-button" type="button" data-i18n="settings.remote.browse" data-i18n-title="settings.remote.vscodeBrowse" title="Browse for code.cmd or Code.exe">Browse…</button>
           </div>
           <p id="settings-detect-status" class="hint" aria-live="polite"></p>
+        </section>
+        <section class="settings-card" data-tab-panel="sshkey" role="tabpanel" hidden>
+          <div class="card-header"><div><h3 data-i18n="settings.sshkey.title">cc-remote SSH key</h3><p data-i18n="settings.sshkey.subtitle">A dedicated key for passwordless XShell login. Separate from your own ~/.ssh keys.</p></div></div>
+          <label class="field"><span data-i18n="settings.sshkey.publicLabel">Public key</span>
+            <textarea id="settings-sshkey-public" rows="3" readonly spellcheck="false" data-i18n-placeholder="settings.sshkey.none" placeholder="No key yet. Click Generate to create one."></textarea>
+          </label>
+          <p id="settings-sshkey-private-hint" class="hint" hidden><span data-i18n="settings.sshkey.privateHint">Private key file (import this into XShell → Tools → User Key Manager → Import):</span> <code id="settings-sshkey-private-path"></code></p>
+          <div class="card-actions">
+            <button id="settings-sshkey-copy" class="secondary-button" type="button" data-i18n="settings.sshkey.copy">Copy</button>
+            <button id="settings-sshkey-generate" class="primary-button" type="button" data-i18n="settings.sshkey.generate">Generate key</button>
+          </div>
+          <p id="settings-sshkey-status" class="hint" aria-live="polite"></p>
+          <p class="hint" data-i18n="settings.sshkey.installHint">Install the public key on a server from the Servers tab in the session config dialog.</p>
         </section>
         </div>
       </div>

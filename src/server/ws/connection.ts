@@ -7,6 +7,7 @@ import { revealXshell, revealXftp } from '../infrastructure/shell/revealSsh.js';
 import { revealVscode } from '../infrastructure/shell/revealVscode.js';
 import { revealLocalShell, type LocalShellApp } from '../infrastructure/shell/revealLocalShell.js';
 import { detectApps as detectAppsInfra } from '../infrastructure/shell/detectApps.js';
+import { checkKeyInstalled } from '../infrastructure/shell/sshKeys.js';
 import type { MetricsCollector, MetricsSnapshot } from '../infrastructure/metrics/metricsCollector.js';
 import type { SshServerProfile } from '../../shared/protocol.js';
 
@@ -155,10 +156,19 @@ export function handleWs(ws: WsLike, manager: SessionManager, store: ConfigServi
     revealXshell: (server, cwd) => {
       if (opts.revealXshell) return opts.revealXshell(server, cwd);
       const settings = store.getAppSettings();
-      revealXshell(server, cwd, {
-        exePath: settings.xshellPath,
-        onError: (message) => send({ type: 'shell.reveal.error', app: 'xshell', message }),
-      });
+      // Probe whether the cc-remote key is installed on this server so the
+      // generated .xsh picks the right auth path (silent pubkey vs. prompt).
+      // A failed probe (unreachable host, no stored password) falls back to
+      // the password path — worst case is an extra prompt, never a silent
+      // no-op. Fire-and-forget: the click's reveal semantics don't change.
+      void checkKeyInstalled(server)
+        .catch(() => false)
+        .then((certInstalled) => {
+          revealXshell(server, cwd, certInstalled, {
+            exePath: settings.xshellPath,
+            onError: (message) => send({ type: 'shell.reveal.error', app: 'xshell', message }),
+          });
+        });
     },
     revealXftp: (server, cwd) => {
       if (opts.revealXftp) return opts.revealXftp(server, cwd);

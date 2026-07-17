@@ -26,6 +26,12 @@ export function mountSettingsDialog(deps: AppDeps): void {
   const xftpBrowse = el<HTMLButtonElement>('settings-xftp-browse');
   const vscodeBrowse = el<HTMLButtonElement>('settings-vscode-browse');
   const saveButton = el<HTMLButtonElement>('settings-save');
+  const sshkeyPublic = el<HTMLTextAreaElement>('settings-sshkey-public');
+  const sshkeyGenerate = el<HTMLButtonElement>('settings-sshkey-generate');
+  const sshkeyCopy = el<HTMLButtonElement>('settings-sshkey-copy');
+  const sshkeyStatus = el<HTMLParagraphElement>('settings-sshkey-status');
+  const sshkeyPrivateHint = el<HTMLParagraphElement>('settings-sshkey-private-hint');
+  const sshkeyPrivatePath = el<HTMLElement>('settings-sshkey-private-path');
 
   // Serial number the Detect button emits with each request; the response is
   // only applied if it matches, so a rapid re-click doesn't let a stale scan
@@ -37,6 +43,8 @@ export function mountSettingsDialog(deps: AppDeps): void {
   deps.bus.on('settings:open', () => {
     populateFromStore();
     detectStatus.textContent = '';
+    sshkeyStatus.textContent = '';
+    deps.conn.send({ type: 'config.sshkey.get' });
     dialog.showModal();
   });
 
@@ -102,6 +110,41 @@ export function mountSettingsDialog(deps: AppDeps): void {
       XFTP: msg.xftpPath,
       'VS Code': msg.vscodePath,
     });
+  });
+
+  // SSH key tab. Generate creates the pair on first use, or regenerates after
+  // an explicit confirm (regeneration invalidates the key already imported
+  // into XShell / installed on servers). Copy puts the public key on the
+  // clipboard. The pair lives server-side under ~/.cchub/keys — the client
+  // only ever sees the public key text + the private key's path for the
+  // one-time XShell import.
+  sshkeyGenerate.onclick = () => {
+    const hasKey = sshkeyPublic.value.trim().length > 0;
+    if (hasKey && !confirm(t('settings.sshkey.regenWarn'))) return;
+    sshkeyStatus.textContent = '';
+    deps.conn.send({ type: 'config.sshkey.generate' });
+  };
+
+  sshkeyCopy.onclick = () => {
+    const key = sshkeyPublic.value.trim();
+    if (!key) return;
+    navigator.clipboard?.writeText(key).then(
+      () => { sshkeyStatus.textContent = t('settings.sshkey.copied'); },
+      () => {},
+    );
+  };
+
+  deps.conn.onMessage((msg) => {
+    if (msg.type !== 'config.sshkey.info') return;
+    sshkeyPublic.value = msg.publicKey ?? '';
+    sshkeyCopy.disabled = !msg.publicKey;
+    sshkeyGenerate.textContent = msg.publicKey ? t('settings.sshkey.regenerate') : t('settings.sshkey.generate');
+    if (msg.privateKeyPath) {
+      sshkeyPrivatePath.textContent = msg.privateKeyPath;
+      sshkeyPrivateHint.hidden = false;
+    } else {
+      sshkeyPrivateHint.hidden = true;
+    }
   });
 
   saveButton.onclick = () => {

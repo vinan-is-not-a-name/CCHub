@@ -40,6 +40,10 @@ export function dispatch(ctx: WsCtx, msg: ClientMessage): void {
       handleConfigMessage(ctx, msg);
       return;
     case 'config.profile.test':
+    case 'config.sshkey.get':
+    case 'config.sshkey.generate':
+    case 'config.sshkey.check':
+    case 'config.sshkey.install':
     case 'launch.cwd.list':
     case 'launch.cwd.mkdir':
     case 'launch.conda.list':

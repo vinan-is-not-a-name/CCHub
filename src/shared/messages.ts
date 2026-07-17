@@ -58,6 +58,20 @@ export type ClientMessage =
   // from it and may then choose to Save. requestId lets the client match a
   // response to the click that triggered it in case of racy re-clicks.
   | { type: 'config.settings.detect'; requestId: string }
+  // cc-remote's dedicated SSH key (for the XShell passwordless + auto-cd path).
+  // `get` reads the current public key (null if never generated); `generate`
+  // forces a fresh pair (the user must then re-import + re-install it). Both
+  // reply with config.sshkey.info. Neither touches SshServerProfile.auth —
+  // cc-remote's own transport keeps using the stored auth method; this key
+  // only ever lands in a server's authorized_keys + XShell's key store.
+  | { type: 'config.sshkey.get' }
+  | { type: 'config.sshkey.generate' }
+  // Probe / install the cc-remote public key against one server's
+  // authorized_keys. `requestId` lets the client ignore a stale response when
+  // it re-checks a different server (serverCard reuses one handler). Reply is
+  // config.sshkey.checked / config.sshkey.installed.
+  | { type: 'config.sshkey.check'; serverId: string; requestId: string }
+  | { type: 'config.sshkey.install'; serverId: string; requestId: string }
   | { type: 'config.profile.save'; profile: ProfileWriteRequest }
   | { type: 'config.profile.delete'; id: string }
   | { type: 'config.profile.copy'; id: string }
@@ -138,6 +152,21 @@ export type ServerMessage =
   // Response to config.settings.detect. null fields mean "not found — user
   // needs to type a path manually in the Settings dialog".
   | { type: 'config.settings.detected'; requestId: string; xshellPath: string | null; xftpPath: string | null; vscodePath: string | null }
+  // cc-remote SSH key responses. `publicKey` is the full OpenSSH line
+  // (`ssh-ed25519 <body> cchub`) or null when no pair exists yet — the
+  // Settings SSH-Key tab shows it for the user to copy / install. `privateKeyPath`
+  // is the absolute path of the private key file the user imports into XShell
+  // once (null when no pair exists yet).
+  | { type: 'config.sshkey.info'; publicKey: string | null; privateKeyPath: string | null }
+  // Result of a per-server probe. `installed` is null when the check itself
+  // failed (couldn't connect / auth) — carries `error` for a toast; the
+  // serverCard button then stays actionable rather than wrongly disabling.
+  | { type: 'config.sshkey.checked'; serverId: string; requestId: string; installed: boolean | null; error?: string }
+  // Result of an install. `ok:false` carries a human-readable `error` (e.g.
+  // "SSH password is required" when the server config has no stored password
+  // to authenticate the install). `alreadyInstalled` distinguishes a no-op
+  // from a fresh append for the status message.
+  | { type: 'config.sshkey.installed'; serverId: string; requestId: string; ok: boolean; alreadyInstalled?: boolean; error?: string }
   // Fired when a shell.reveal side-effect can't be carried out (helper exe
   // missing on disk, spawn ENOENT, etc.). Client renders a toast; the app
   // name lets it phrase the message ("Couldn't open XShell — …").

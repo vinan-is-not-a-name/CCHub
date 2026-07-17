@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { buildXshellSessionFile, buildXshellUrl, buildXftpUrl } from '../src/server/infrastructure/shell/revealSsh.js';
+import { buildXshellSessionFile, buildXftpUrl } from '../src/server/infrastructure/shell/revealSsh.js';
 import type { SshServerProfile } from '../src/shared/protocol.js';
 
 // The `.xsh` builder and the sftp URL builder are the two pure parts of the
@@ -23,7 +23,7 @@ function keyServer(privateKeyPath = '/home/me/.ssh/id_ed25519'): SshServerProfil
 
 test.describe('buildXshellSessionFile', () => {
   test('emits Host / Port / Protocol in [CONNECTION]', () => {
-    const body = buildXshellSessionFile(passwordServer(), '/home/alice/my-project');
+    const body = buildXshellSessionFile(passwordServer(), '/home/alice/my-project', false);
     expect(body).toContain('[CONNECTION]');
     expect(body).toContain('Protocol=SSH');
     expect(body).toContain('Host=192.0.2.10');
@@ -32,102 +32,85 @@ test.describe('buildXshellSessionFile', () => {
 
   test('routes auto-cwd through [CONNECTION:SSH] RemoteCommand (not InitRemoteDirectory)', () => {
     // InitRemoteDirectory is a SFTP/FTP-only field and does nothing on SSH
-    // sessions. Auto-cwd must go through RemoteCommand.
-    const body = buildXshellSessionFile(passwordServer(), '/home/alice/my-project');
-    expect(body).toContain('[CONNECTION:SSH]');
-    expect(body).toContain(`RemoteCommand=cd '/home/alice/my-project' && exec $SHELL -l`);
-    expect(body).not.toMatch(/^InitRemoteDirectory=/m);
+    // sessions. Auto-cwd must go through RemoteCommand — and this must hold on
+    // BOTH auth paths, since RemoteCommand is the whole point of auto-cd.
+    for (const certInstalled of [false, true]) {
+      const body = buildXshellSessionFile(passwordServer(), '/home/alice/my-project', certInstalled);
+      expect(body).toContain('[CONNECTION:SSH]');
+      expect(body).toContain(`RemoteCommand=cd '/home/alice/my-project' && exec $SHELL -l`);
+      expect(body).not.toMatch(/^InitRemoteDirectory=/m);
+    }
   });
 
   test('escapes single quotes in cwd so an adversarial path cannot break out of the quoted string', () => {
     // POSIX-safe: close, escape, reopen. `it's` becomes `it'\''s`.
-    const body = buildXshellSessionFile(passwordServer(), `/tmp/it's a dir`);
+    const body = buildXshellSessionFile(passwordServer(), `/tmp/it's a dir`, false);
     expect(body).toContain(`RemoteCommand=cd '/tmp/it'\\''s a dir' && exec $SHELL -l`);
   });
 
-  test('emits UserName and leaves Password / Passphrase empty (XShell encryption is per-machine)', () => {
-    const body = buildXshellSessionFile(passwordServer(), '/tmp');
-    expect(body).toContain('UserName=alice');
-    expect(body).toMatch(/^Password=$/m);
-    expect(body).toMatch(/^Passphrase=$/m);
+  test('never inlines a credential — Password / Passphrase stay empty on both paths', () => {
+    // Auto-feeding a password (Password= or a -url override) makes XShell skip
+    // RemoteCommand, which breaks auto-cd. So the file must never carry one,
+    // regardless of auth path.
+    for (const certInstalled of [false, true]) {
+      const body = buildXshellSessionFile(passwordServer(), '/tmp', certInstalled);
+      expect(body).toContain('UserName=alice');
+      expect(body).toMatch(/^Password=$/m);
+      expect(body).toMatch(/^Passphrase=$/m);
+    }
   });
 
-  test('writes the private-key path into UserKey when the server uses key auth', () => {
-    const body = buildXshellSessionFile(keyServer('/home/me/.ssh/id_ed25519'), '/tmp');
-    expect(body).toContain('UserKey=/home/me/.ssh/id_ed25519');
+  test('cert-installed path enables ONLY the public-key method and points UserKey at the cchub key', () => {
+    // AuthMethodList=00,11,20,30 (pubkey method = code 11) sampled from a real
+    // GUI-built key session; UserKey takes the XShell key-store BASENAME, not a
+    // disk path (a disk path is silently ignored → password prompt).
+    const body = buildXshellSessionFile(passwordServer(), '/tmp', true);
+    expect(body).toContain('UserKey=cchub_ed25519');
+    expect(body).toContain('AuthMethodList=00,11,20,30');
   });
 
-  test('leaves UserKey empty when the server uses password auth', () => {
-    const body = buildXshellSessionFile(passwordServer(), '/tmp');
+  test('not-installed path leaves UserKey empty and enables the interactive password method', () => {
+    // No key to rely on → XShell prompts for a password once; because nothing
+    // is auto-fed, RemoteCommand still runs after login so auto-cd works.
+    const body = buildXshellSessionFile(passwordServer(), '/tmp', false);
     expect(body).toMatch(/^UserKey=$/m);
+    expect(body).toContain('AuthMethodList=01,10,20,30');
+  });
+
+  test('auth path is independent of the stored auth.method (the .xsh does not read config auth)', () => {
+    // A server whose config uses key auth still gets the password .xsh when the
+    // cchub key isn't installed, and a password-auth server gets the pubkey
+    // .xsh when it is. The switch is the runtime cert probe, not auth.method —
+    // this is the whole "install pubkey only, don't change config" contract.
+    expect(buildXshellSessionFile(keyServer(), '/tmp', false)).toContain('AuthMethodList=01,10,20,30');
+    expect(buildXshellSessionFile(keyServer(), '/tmp', false)).toMatch(/^UserKey=$/m);
+    expect(buildXshellSessionFile(passwordServer(), '/tmp', true)).toContain('UserKey=cchub_ed25519');
   });
 
   test('uses CRLF line endings (XShell is a Windows-native app)', () => {
-    const body = buildXshellSessionFile(passwordServer(), '/tmp');
+    const body = buildXshellSessionFile(passwordServer(), '/tmp', false);
     expect(body.includes('\r\n')).toBe(true);
   });
 
-  test('rejects host / username / cwd / userKey containing CR or LF (INI injection guard)', () => {
+  test('rejects host / username / cwd containing CR or LF (INI injection guard)', () => {
     // Newlines in any of these would let a spoofed value splice a new
     // [SECTION] header or overwrite a real field like `AuthMethodList=` in
     // the emitted INI body. Legitimate SSH inputs never contain these, so
     // rejecting is safe.
-    expect(() => buildXshellSessionFile(passwordServer({ host: '192.0.2.10\n[Nefarious]' }), '/tmp'))
+    expect(() => buildXshellSessionFile(passwordServer({ host: '192.0.2.10\n[Nefarious]' }), '/tmp', false))
       .toThrow(/host contains characters unsafe/);
-    expect(() => buildXshellSessionFile(passwordServer({ username: 'alice\nAuthMethodList=00' }), '/tmp'))
+    expect(() => buildXshellSessionFile(passwordServer({ username: 'alice\nAuthMethodList=00' }), '/tmp', false))
       .toThrow(/username contains characters unsafe/);
-    expect(() => buildXshellSessionFile(passwordServer(), '/tmp\r\n[Nefarious]'))
+    expect(() => buildXshellSessionFile(passwordServer(), '/tmp\r\n[Nefarious]', false))
       .toThrow(/cwd contains characters unsafe/);
-    expect(() => buildXshellSessionFile(keyServer('/keys/id\nAuthMethodList=00'), '/tmp'))
-      .toThrow(/privateKeyPath contains characters unsafe/);
   });
 
   test('rejects a NUL in any INI-embedded field', () => {
     // Same class as the newline case — parsers on the receiving end (XShell
     // and the file writer) each handle NUL differently and letting one
     // through invites TOCTOU quirks.
-    expect(() => buildXshellSessionFile(passwordServer({ host: '192.0.2.10\x00' }), '/tmp'))
+    expect(() => buildXshellSessionFile(passwordServer({ host: '192.0.2.10\x00' }), '/tmp', false))
       .toThrow(/host contains characters unsafe/);
-  });
-});
-
-test.describe('buildXshellUrl', () => {
-  test('returns ssh://user:password@host:port when the server has a password', () => {
-    // XShell's docs: URL properties override the paired session file, so the
-    // Password= field's emptiness doesn't matter — the URL password wins and
-    // the prompt is skipped.
-    const url = buildXshellUrl(passwordServer({ auth: { method: 'password', password: 'secret' } }));
-    expect(url).toBe('ssh://alice:secret@192.0.2.10:22');
-  });
-
-  test('percent-encodes passwords with @ / : / # / spaces so the URL structure survives', () => {
-    // Real passwords are RFC 3986 reserved-char soup; encodeURIComponent
-    // handles every char that would misparse the authority.
-    const url = buildXshellUrl(passwordServer({ auth: { method: 'password', password: 'p@ss:w/rd# !' } }));
-    expect(url).toBe('ssh://alice:p%40ss%3Aw%2Frd%23%20!@192.0.2.10:22');
-  });
-
-  test('percent-encodes usernames that contain a literal @', () => {
-    const url = buildXshellUrl(passwordServer({
-      username: 'u@corp',
-      auth: { method: 'password', password: 'p' },
-    }));
-    expect(url).toBe('ssh://u%40corp:p@192.0.2.10:22');
-  });
-
-  test('returns null for private-key auth (no password to inline, key path lives in the .xsh file)', () => {
-    expect(buildXshellUrl(keyServer('/home/me/.ssh/id_ed25519'))).toBeNull();
-  });
-
-  test('returns null when password auth is declared but the password field is empty', () => {
-    // Falls back to the file-association path in revealXshell — XShell will
-    // prompt if it needs to. Better than emitting `user:@host` which some
-    // parsers reject.
-    expect(buildXshellUrl(passwordServer({ auth: { method: 'password', password: '' } }))).toBeNull();
-  });
-
-  test('returns null when password auth has no password field at all', () => {
-    expect(buildXshellUrl(passwordServer())).toBeNull();
   });
 });
 
