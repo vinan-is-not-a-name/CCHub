@@ -190,3 +190,24 @@ test.describe('BashAdapter.compile', () => {
     expect(cmd).toContain(`'claude' '--mcp-config' '/tmp/spaced dir/mcp-1.json' '--allowedTools' 'mcp__cchub__feed_image'`);
   });
 });
+
+// The effort level (/effort) is applied by setting CLAUDE_CODE_EFFORT_LEVEL in
+// the session env (application/session.ts). Local sessions hand the whole env
+// to node-pty so it just works; remote/SSH sessions only carry the keys the
+// adapters export (FORWARDED_ENV_KEYS). The bash `export` / cmd `set` lines are
+// the ONLY reliable way the var reaches the remote process — the SSH channel
+// env is stripped by the remote sshd's AcceptEnv. If effort isn't in the
+// forwarded set it silently no-ops on remote, which is exactly the reported
+// "effort level doesn't take effect in remote mode" bug. Both adapters must
+// emit it.
+test.describe('effort level forwarding to remote sessions', () => {
+  test('CmdAdapter exports CLAUDE_CODE_EFFORT_LEVEL', () => {
+    const cmd = CmdAdapter.compile(makeLaunch({ env: { CLAUDE_CODE_EFFORT_LEVEL: 'high' } }));
+    expect(cmd).toContain('set "CLAUDE_CODE_EFFORT_LEVEL=high"');
+  });
+
+  test('BashAdapter exports CLAUDE_CODE_EFFORT_LEVEL', () => {
+    const cmd = BashAdapter.compile(makeLaunch({ cwd: '/home/user', env: { CLAUDE_CODE_EFFORT_LEVEL: 'high' } }));
+    expect(cmd).toContain(`export CLAUDE_CODE_EFFORT_LEVEL='high'`);
+  });
+});

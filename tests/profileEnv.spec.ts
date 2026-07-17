@@ -59,4 +59,13 @@ test.describe('buildRemoteEnv', () => {
   test('empty input yields an empty env', () => {
     expect(buildRemoteEnv({})).toEqual({});
   });
+
+  // The effort level rides the same forwarded-env path as the Anthropic vars.
+  // Without CLAUDE_CODE_EFFORT_LEVEL in the forwarded set, SSH sessions drop it
+  // and /effort silently no-ops on remote (it works locally only because
+  // node-pty inherits the full, unfiltered env).
+  test('forwards CLAUDE_CODE_EFFORT_LEVEL so remote sessions honor the effort level', () => {
+    const out = buildRemoteEnv({ CLAUDE_CODE_EFFORT_LEVEL: 'high', PATH: '/usr/bin' });
+    expect(out).toEqual({ CLAUDE_CODE_EFFORT_LEVEL: 'high' });
+  });
 });

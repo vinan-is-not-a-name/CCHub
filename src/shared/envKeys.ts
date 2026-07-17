@@ -26,10 +26,19 @@ export const PROXY_ENV_KEYS = [
   'http_proxy', 'https_proxy', 'all_proxy', 'no_proxy',
 ] as const;
 
+/** CC runtime session controls carried in the session env. Effort (/effort) is
+ * applied by setting CLAUDE_CODE_EFFORT_LEVEL; it must be forwarded like the
+ * Anthropic vars or remote/SSH sessions silently drop it (local works only
+ * because node-pty inherits the full, unfiltered env). */
+export const CC_RUNTIME_ENV_KEYS = [
+  'CLAUDE_CODE_EFFORT_LEVEL',
+] as const;
+
 /** Every env key the shell adapters export into the launch command and that
- * remoteEnv forwards over SSH: Anthropic profile vars + proxy vars. One list so
- * adding a forwarded var is a single edit and both code paths stay in sync. */
-export const FORWARDED_ENV_KEYS = [...ANTHROPIC_ENV_KEYS, ...PROXY_ENV_KEYS] as readonly string[];
+ * remoteEnv forwards over SSH: Anthropic profile vars + proxy vars + CC runtime
+ * controls. One list so adding a forwarded var is a single edit and both code
+ * paths stay in sync. */
+export const FORWARDED_ENV_KEYS = [...ANTHROPIC_ENV_KEYS, ...PROXY_ENV_KEYS, ...CC_RUNTIME_ENV_KEYS] as readonly string[];
 
 /** Map flat profile form fields onto their env keys, dropping empty values. */
 export function profileFieldsToEnv(
