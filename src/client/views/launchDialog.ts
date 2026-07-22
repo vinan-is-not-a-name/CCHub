@@ -132,6 +132,14 @@ export function mountLaunchDialog(deps: AppDeps, params: URLSearchParams) {
     }
     if (typeof recent.cwd === 'string') setVal('launch-cwd', recent.cwd);
     setVal('launch-resume', recent.resume ?? '');
+    // Overlay the recent's effective proxy/skip/effort so the prefilled form
+    // reflects what the launch actually used (and, since the form is read
+    // verbatim on submit, creates with those). Guarded by "defined": entries
+    // recorded before these were tracked leave whatever applyPreset filled —
+    // the old preset-fallback. proxyId '' is an explicit "None" and applies.
+    if (typeof recent.proxyId === 'string') setVal('launch-proxy', recent.proxyId);
+    if (typeof recent.skipPermissions === 'boolean') setChecked('launch-skip-permissions', recent.skipPermissions);
+    if (typeof recent.effort === 'string') setVal('launch-effort', recent.effort);
     // Refresh conda list against the (possibly new) server, then set the value.
     // We can't just setVal on the select — the option list is populated async.
     void condaSelect.refresh(val('launch-server') || undefined, recent.condaEnv ?? '');

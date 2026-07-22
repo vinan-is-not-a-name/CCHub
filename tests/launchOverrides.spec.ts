@@ -4,16 +4,18 @@ import { buildLaunchOverrides } from '../src/shared/launchOverrides.js';
 const blankForm = { serverId: '', profileId: '', cwd: '', condaEnv: '', resume: '', skipPermissions: false, proxyId: '', effort: '' };
 
 test.describe('buildLaunchOverrides', () => {
-  test('blank form: id fields → undefined, condaEnv/resume → empty string (no client-side preset fallback)', () => {
+  test('blank form: id fields → undefined; condaEnv/resume/skip/proxy/effort → explicit empty (a full snapshot, no client-side preset fallback)', () => {
     const out = buildLaunchOverrides(blankForm);
     expect(out.serverId).toBeUndefined();
     expect(out.anthropicProfileId).toBeUndefined();
     expect(out.cwd).toBeUndefined();
     expect(out.condaEnv).toBe('');
     expect(out.resume).toBe('');
-    expect(out.skipPermissions).toBeUndefined();
-    expect(out.proxyId).toBeUndefined();
-    expect(out.effort).toBeUndefined();
+    // The dialog submits a complete snapshot: an explicit off/None/Auto must
+    // reach the server verbatim so it overrides a preset that set these.
+    expect(out.skipPermissions).toBe(false);
+    expect(out.proxyId).toBe('');
+    expect(out.effort).toBe('');
   });
 
   test('filled form passes every field through verbatim', () => {
@@ -34,14 +36,14 @@ test.describe('buildLaunchOverrides', () => {
     expect(buildLaunchOverrides({ ...blankForm, resume: 'continue' }).resume).toBe('continue');
   });
 
-  test('skipPermissions=false becomes undefined (not set)', () => {
+  test('skipPermissions=false passes through as false (explicit off overrides a preset that skips)', () => {
     const out = buildLaunchOverrides({ ...blankForm, skipPermissions: false });
-    expect(out.skipPermissions).toBeUndefined();
+    expect(out.skipPermissions).toBe(false);
   });
 
-  test('empty proxyId and effort become undefined', () => {
+  test('empty proxyId and effort pass through as empty string (explicit None/Auto overrides a preset that set them)', () => {
     const out = buildLaunchOverrides({ ...blankForm, proxyId: '', effort: '' });
-    expect(out.proxyId).toBeUndefined();
-    expect(out.effort).toBeUndefined();
+    expect(out.proxyId).toBe('');
+    expect(out.effort).toBe('');
   });
 });

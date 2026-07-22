@@ -20,6 +20,8 @@ export interface RecordLaunchInput {
   cwd?: string;
   condaEnv?: string;
   resume?: 'continue';
+  skipPermissions?: boolean;
+  effort?: string;
   /** Name to fall back on when the preset is later deleted / renamed. Live
    * chip rendering prefers the live preset name via id lookup. */
   presetNameSnapshot: string;
@@ -103,6 +105,8 @@ export class ConfigStore {
       cwd: input.cwd,
       condaEnv: input.condaEnv,
       resume: input.resume,
+      skipPermissions: input.skipPermissions,
+      effort: input.effort,
       presetNameSnapshot: input.presetNameSnapshot,
       lastUsedAt: now,
     };
@@ -163,6 +167,8 @@ function computeRecentKey(input: RecordLaunchInput): string {
     input.cwd ?? '',
     input.condaEnv ?? '',
     input.resume ?? '',
+    input.skipPermissions ? '1' : '',
+    input.effort ?? '',
   ].join('\x00');
   return createHash('sha1').update(parts).digest('hex').slice(0, 16);
 }

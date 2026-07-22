@@ -168,4 +168,38 @@ test.describe('resolveLaunch', () => {
     const r = resolveLaunch({ presetId: 'pre', launch: { proxyId: 'px2' } }, svc);
     expect(r.proxy).toEqual({ bindPort: 2080, host: '10.0.0.1', port: 9999 });
   });
+
+  // The reported bug: picking "None" in the dialog over a preset that names a
+  // proxy. The dialog now submits proxyId: '' verbatim; the server must treat
+  // that explicit empty as "no proxy", NOT fall back to the preset's proxy.
+  test('launch override proxyId "" clears a preset proxy (explicit None wins)', () => {
+    const ssh = sshServer('ssh');
+    const px1 = proxy('px1', { bindPort: 1080 });
+    const pre = preset('pre', { serverId: 'ssh', cwd: '/work', proxyId: 'px1' });
+    const svc = makeService({ servers: [ssh], proxies: [px1], presets: [pre], defaults: { presetId: 'pre' } });
+    const r = resolveLaunch({ presetId: 'pre', launch: { proxyId: '' } }, svc);
+    expect(r.proxy).toBeUndefined();
+    expect(r.env.HTTPS_PROXY).toBeUndefined();
+  });
+
+  // Symmetric to the existing "true over false" test: unchecking skip in the
+  // dialog (false) must override a preset that sets skipPermissions: true.
+  test('launch override skipPermissions false overrides a preset that skips', () => {
+    const local = localServer('local');
+    const pre = preset('pre', { serverId: 'local', cwd: '/work', skipPermissions: true });
+    const svc = makeService({ servers: [local], presets: [pre], defaults: { presetId: 'pre' } });
+    const r = resolveLaunch({ presetId: 'pre', launch: { skipPermissions: false } }, svc);
+    expect(r.skipPermissions).toBe(false);
+  });
+
+  // Selecting "Auto" (effort '') over a preset that set an effort. Empty string
+  // is falsy but not nullish, so `'' ?? preset` keeps '' — effort resolves to
+  // no auto-effort rather than the preset's.
+  test('launch override effort "" clears a preset effort (Auto wins)', () => {
+    const local = localServer('local');
+    const pre = preset('pre', { serverId: 'local', cwd: '/work', effort: 'medium' });
+    const svc = makeService({ servers: [local], presets: [pre], defaults: { presetId: 'pre' } });
+    const r = resolveLaunch({ presetId: 'pre', launch: { effort: '' } }, svc);
+    expect(r.effort).toBe('');
+  });
 });

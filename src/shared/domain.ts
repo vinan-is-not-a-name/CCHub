@@ -135,10 +135,20 @@ export interface RecentLaunch {
   presetId?: string;
   serverId?: string;
   profileId?: string;
+  /** Effective proxy id the launch actually used (override if set, else the
+   * preset's). Empty string is an explicit "None" that overrode a preset
+   * proxy; undefined means neither named one. Replayed verbatim so a re-launch
+   * reproduces the same tunnel (or lack of one). */
   proxyId?: string;
   cwd?: string;
   condaEnv?: string;
   resume?: 'continue';
+  /** Effective skip-permissions / effort the launch used, snapshotted so a
+   * re-launch reproduces them instead of reverting to the preset. undefined on
+   * entries recorded before these were tracked → falls back to the preset,
+   * matching the prior behavior. */
+  skipPermissions?: boolean;
+  effort?: string;
   presetNameSnapshot: string;
   lastUsedAt: number;
 }

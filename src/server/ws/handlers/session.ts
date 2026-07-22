@@ -68,10 +68,18 @@ function recordRecent(ctx: WsCtx, msg: CreateMessage, launch: ResolvedLaunch): v
     presetId,
     serverId: msg.launch?.serverId ?? preset?.serverId ?? defaults.serverId,
     profileId: msg.launch?.anthropicProfileId ?? preset?.anthropicProfileId ?? defaults.profileId,
-    proxyId: preset?.proxyId,
+    // Effective proxy the launch used: override wins over preset (mirrors
+    // resolveLaunch's `launch.proxyId ?? preset?.proxyId`). An explicit '' —
+    // "None over a preset proxy" — is preserved so re-launch reproduces it
+    // rather than falling back to the preset's proxy.
+    proxyId: msg.launch?.proxyId ?? preset?.proxyId,
     cwd: launch.cwd,
     condaEnv: launch.condaEnv,
     resume: launch.resume === 'continue' ? 'continue' : undefined,
+    // Snapshot the resolved skip/effort (already layered launch>preset by
+    // resolveLaunch) so a re-launch reproduces them.
+    skipPermissions: launch.skipPermissions,
+    effort: launch.effort,
     presetNameSnapshot: launch.presetName ?? 'Custom',
   });
 }

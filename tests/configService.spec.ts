@@ -184,6 +184,27 @@ test.describe('ConfigService.recordRecentLaunch', () => {
     expect(snap.recentLaunches.map(r => r.presetId)).toEqual(['b', 'a']);
   });
 
+  test('persists effective proxyId/skipPermissions/effort for faithful re-launch', () => {
+    const svc = makeService({});
+    const snap = svc.recordRecentLaunch({
+      presetId: 'p', serverId: 's', cwd: '/w',
+      proxyId: '', skipPermissions: true, effort: 'max', presetNameSnapshot: 'P',
+    });
+    const r = snap.recentLaunches[0];
+    expect(r.proxyId).toBe('');
+    expect(r.skipPermissions).toBe(true);
+    expect(r.effort).toBe('max');
+  });
+
+  test('same identity but different skip/effort is a distinct entry (not collapsed)', () => {
+    const svc = makeService({});
+    svc.recordRecentLaunch({ presetId: 'p', cwd: '/w', skipPermissions: false, presetNameSnapshot: 'P' });
+    const skip = svc.recordRecentLaunch({ presetId: 'p', cwd: '/w', skipPermissions: true, presetNameSnapshot: 'P' });
+    expect(skip.recentLaunches).toHaveLength(2);
+    const eff = svc.recordRecentLaunch({ presetId: 'p', cwd: '/w', skipPermissions: true, effort: 'max', presetNameSnapshot: 'P' });
+    expect(eff.recentLaunches).toHaveLength(3);
+  });
+
   test('cap evicts the oldest entry once RECENT_LAUNCH_MAX is exceeded', () => {
     const svc = makeService({});
     // 21 distinct identities → 20 kept, first one dropped.

@@ -32,9 +32,12 @@ export function mountSessionView(deps: AppDeps, params: URLSearchParams, notify?
     create({ presetId: input.presetId, launch });
   });
 
-  // Recent-chip re-launch bypasses the form: the RecentLaunch already carries
-  // resolved identity (preset/server/profile/cwd/conda/resume), so we hand it
-  // straight to session.create instead of round-tripping through the dialog.
+  // Recent-chip re-launch bypasses the form: the RecentLaunch carries the
+  // effective launch (preset/server/profile/cwd/conda/resume + proxy/skip/
+  // effort), so we hand it straight to session.create. proxyId/skipPermissions/
+  // effort are passed verbatim — an explicit '' proxy / false skip reproduces
+  // an override of the preset, while undefined (entries recorded before these
+  // were tracked) falls back to the preset server-side, matching old behavior.
   deps.bus.on('launch:relaunch', ({ recent }) => {
     create({
       presetId: recent.presetId,
@@ -44,6 +47,9 @@ export function mountSessionView(deps: AppDeps, params: URLSearchParams, notify?
         cwd: recent.cwd,
         condaEnv: recent.condaEnv ?? '',
         resume: recent.resume ?? '',
+        proxyId: recent.proxyId,
+        skipPermissions: recent.skipPermissions,
+        effort: recent.effort,
       },
     });
   });
