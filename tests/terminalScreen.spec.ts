@@ -184,4 +184,34 @@ test.describe('TerminalScreen.snapshot', () => {
     expect(snap.lines[0]).toBe('plain hello world');
     expect(snap.lines[0]).not.toContain('\x1b');
   });
+
+  // Emoji width (Unicode 11). xterm's default Unicode 6 table measures ✅
+  // (U+2705) / ❌ (U+274C) as 1 cell, but CC lays them out as 2-cell wide
+  // glyphs and positions everything after them accordingly. That 1-col
+  // disagreement per emoji is what corrupted text following an emoji on
+  // reattach/scroll (chars overwritten / shifted). With the Unicode11Addon
+  // loaded in the ctor, the headless buffer must agree with CC that these are
+  // 2 cells wide.
+  test('emoji ✅/❌ 按 Unicode 11 占 2 列,后随文本不被错位', async () => {
+    const screen = new TerminalScreen(80, 5);
+    // CC's actual pattern: emoji, a space, then a word.
+    await writeAll(screen, ['✅ register\r\n']);
+    const snap = screen.snapshot();
+    // Round-trips as plain text with the word intact and no injected/dropped
+    // char adjacent to the emoji.
+    expect(snap.lines[0]).toBe('✅ register');
+  });
+
+  test('emoji 后的 CSI 绝对定位落在正确列(2 列宽,不 off-by-one)', async () => {
+    const screen = new TerminalScreen(80, 5);
+    // Write the emoji, then jump the cursor to an absolute column with CSI
+    // `col H` (1-based) exactly as CC does, and overwrite. If the emoji were
+    // measured as 1 cell, xterm's column math would be off by one and the
+    // overwrite would land on the wrong cell (the reported corruption).
+    // ✅ occupies columns 1-2; "OK" placed at column 4 must sit after a single
+    // gap space at column 3.
+    await writeAll(screen, ['✅\x1b[4GOK']);
+    const snap = screen.snapshot();
+    expect(snap.lines[0]).toBe('✅ OK');
+  });
 });

@@ -1,5 +1,6 @@
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { Unicode11Addon } from '@xterm/addon-unicode11';
 import themes from 'xterm-theme';
 import type { TerminalSnapshot } from '../shared/protocol.js';
 import { attachClipboard } from './terminalClipboard.js';
@@ -64,9 +65,21 @@ export function createTerminal(container: HTMLElement) {
     fontWeightBold: '700',
     theme: cursorTheme(),
     scrollback: 5000,
+    // Required to switch to the Unicode 11 wcwidth table below —
+    // unicode.activeVersion and the Unicode11Addon are xterm "proposed" API.
+    allowProposedApi: true,
   });
   const fit = new FitAddon();
   term.loadAddon(fit);
+  // Unicode 11 wcwidth. xterm ships a frozen Unicode 6 table where emoji like
+  // ✅ (U+2705) / ❌ (U+274C) measure 1 cell, but CC lays them out as 2-cell
+  // wide glyphs (modern Unicode ≥9). That 1-col disagreement per emoji makes
+  // CC's absolute cursor moves (CSI row;col H) land one cell off in xterm,
+  // corrupting every character after an emoji. Loading the v11 table aligns
+  // xterm's widths with CC's; must be set before any write() so the very first
+  // frame is measured correctly.
+  term.loadAddon(new Unicode11Addon());
+  term.unicode.activeVersion = '11';
   term.open(container);
   // DECTCEM detection: CC v2.1.206+ manages cursor visibility itself via
   // CSI ?25l/?25h. First time we see param 25 in either handler, upgrade this
