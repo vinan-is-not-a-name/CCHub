@@ -1,5 +1,6 @@
 import * as pty from 'node-pty';
 import * as net from 'net';
+import { StringDecoder } from 'string_decoder';
 import { Client, ClientChannel } from 'ssh2';
 import { EventEmitter } from 'events';
 import { ProxyTunnel, ServerProfile, SshServerProfile } from '../../../shared/protocol.js';
@@ -122,16 +123,24 @@ function setupReverseTunnels(conn: Client, tunnels: Array<{ name: string; tunnel
   }
 }
 
-class SshChannel extends EventEmitter implements ConnectorChannel {
+export class SshChannel extends EventEmitter implements ConnectorChannel {
   private stream: ClientChannel | null = null;
   private conn: Client | null = null;
   private closed = false;
+  // ssh2 emits raw Buffers sliced at TCP/packet boundaries, which can fall in
+  // the middle of a multibyte UTF-8 char. Decoding each Buffer independently
+  // yields U+FFFD for the split halves, which then corrupts cc's column-width
+  // math and strands ghost text. StringDecoder holds the incomplete tail bytes
+  // until the continuation arrives. stdout and stderr are independent byte
+  // streams, so each needs its own decoder.
+  private outDecoder = new StringDecoder('utf8');
+  private errDecoder = new StringDecoder('utf8');
 
   attachStream(stream: ClientChannel, conn: Client) {
     this.stream = stream;
     this.conn = conn;
-    stream.on('data', (data: Buffer) => this.emit('data', data.toString('utf8')));
-    stream.stderr.on('data', (data: Buffer) => this.emit('data', data.toString('utf8')));
+    stream.on('data', (data: Buffer) => this.emit('data', this.outDecoder.write(data)));
+    stream.stderr.on('data', (data: Buffer) => this.emit('data', this.errDecoder.write(data)));
     stream.on('close', () => this.emitExit(null));
     stream.on('error', (e: Error) => this.emit('data', `SSH stream error: ${e.message}\r\n`));
   }
