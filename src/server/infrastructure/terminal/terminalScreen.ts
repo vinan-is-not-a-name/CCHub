@@ -1,4 +1,5 @@
 import xtermHeadless from '@xterm/headless';
+import { Unicode11Addon } from '@xterm/addon-unicode11';
 import type { TerminalSnapshot } from '../../../shared/protocol.js';
 
 const { Terminal } = xtermHeadless;
@@ -132,6 +133,17 @@ export class TerminalScreen {
 
   constructor(cols = 120, rows = 40, scrollback = 64 * 1024) {
     this.term = new Terminal({ cols, rows, scrollback, allowProposedApi: true });
+    // Match the browser xterm's Unicode 11 wcwidth (client/terminal.ts). The
+    // snapshot buffer must measure emoji like ✅/❌ as 2 cells exactly as CC
+    // and the client do — otherwise a reattach replays a buffer whose columns
+    // are shifted relative to what CC drew, reproducing the emoji-adjacent
+    // corruption at attach time. Applied before any write() so the first
+    // frame is measured with the v11 table. The addon is DOM-free, so the
+    // same package serves both the browser and headless terminals; the cast
+    // bridges the addon's @xterm/xterm Terminal typing to the structurally
+    // identical @xterm/headless one.
+    this.term.loadAddon(new Unicode11Addon() as unknown as Parameters<typeof this.term.loadAddon>[0]);
+    this.term.unicode.activeVersion = '11';
   }
 
   write(data: string, callback?: () => void) {
