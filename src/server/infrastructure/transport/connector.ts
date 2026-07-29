@@ -1,5 +1,8 @@
 import * as pty from 'node-pty';
 import * as net from 'net';
+import * as fs from 'fs';
+import * as path from 'path';
+import { createRequire } from 'module';
 import { StringDecoder } from 'string_decoder';
 import { Client, ClientChannel } from 'ssh2';
 import { EventEmitter } from 'events';
@@ -42,18 +45,85 @@ export interface Connector {
   spawn(args: ConnectorSpawnArgs): ConnectorChannel;
 }
 
+/** Absolute path to the conpty.dll node-pty ships, or null if it isn't there
+ * (non-Windows install, pruned package, unresolvable module). */
+export function bundledConptyDll(): string | null {
+  if (process.platform !== 'win32') return null;
+  try {
+    const require_ = createRequire(import.meta.url);
+    const pkg = require_.resolve('node-pty/package.json');
+    const dll = path.join(path.dirname(pkg), 'build', 'Release', 'conpty', 'conpty.dll');
+    return fs.existsSync(dll) ? dll : null;
+  } catch {
+    return null;
+  }
+}
+
+export interface LocalConnectorDeps {
+  /** Defaults to a real warning rather than a no-op: silently degrading to the
+   * rewriting ConPTY is the failure this whole path exists to make visible.
+   * Nothing else in infrastructure/ imports the entry logger, so this stays on
+   * console. Injectable so the fallback is assertable. */
+  onNotice?: (message: string) => void;
+  /** Seam for the fallback test — a bad conpty.dll can only be simulated by
+   * making the useConptyDll spawn throw. Defaults to node-pty. */
+  spawnPty?: typeof pty.spawn;
+}
+
+/** Windows ships a conhost whose ConPTY rewrites the child's byte stream on the
+ * way out, and how it rewrites depends on the OS build. Measured with one fixed
+ * input on two hosts: conhost 10.0.19041.4522 (Win10 19045) folds a bare
+ * `CSI 1m` into `CSI 1m CSI 97m` because its attribute model reads bold as
+ * "brighten the foreground" — and brightWhite on a light xterm theme is
+ * invisible. That same conhost also drops `CSI 2m` (dim), rewrites `CSI 7m`
+ * (reverse) to a hardcoded `CSI 30m CSI 47m`, swallows `?1049h` (alt screen,
+ * which the snapshot-restore path in client/terminal.ts assumes cc has on), and
+ * detaches OSC 8 hyperlinks from the text they wrap. conhost 10.0.26100.7306
+ * (Win11) forwards all of it untouched. Nothing cc is configured with can
+ * affect this: the rewrite happens after cc writes and before cc-remote reads.
+ *
+ * node-pty ships its own, far newer conpty.dll that is effectively
+ * pass-through. With it, that same fixed input produced byte-identical output
+ * on both hosts (sha256 86a3407d…b40cd0, 260 bytes, against the system path's
+ * 458 on Win10 and 774 on Win11) — the host difference is removed rather than
+ * compensated for. So prefer it whenever it is present, and let the terminal
+ * layer see what cc actually wrote.
+ *
+ * `useConptyDll` is flagged EXPERIMENTAL upstream, so it must not become a
+ * single point of failure: if the dll is absent, or the spawn throws with it,
+ * fall back to the system ConPTY and say which path was taken. */
 export class LocalConnector implements Connector {
+  private onNotice: (message: string) => void;
+  private spawnPty: typeof pty.spawn;
+
+  constructor(deps: LocalConnectorDeps = {}) {
+    this.onNotice = deps.onNotice ?? ((m) => console.warn(m));
+    this.spawnPty = deps.spawnPty ?? pty.spawn;
+  }
+
   spawn(args: ConnectorSpawnArgs): ConnectorChannel {
     const { file, args: spawnArgs } = args.shell.spawnArgs(args.command);
     const cwd = args.cwd.replace(/\\/g, '/');
-    const proc = pty.spawn(file, spawnArgs, {
+    const base = {
       name: 'xterm-256color',
       cols: args.cols,
       rows: args.rows,
       cwd,
       env: args.env,
-    });
-    return new LocalChannel(proc);
+    };
+    const dll = bundledConptyDll();
+    if (dll) {
+      try {
+        return new LocalChannel(this.spawnPty(file, spawnArgs, { ...base, useConptyDll: true }));
+      } catch (error) {
+        // Experimental path failed — the session still has to start.
+        this.onNotice(
+          `bundled ConPTY (${dll}) failed, falling back to the system one: ` +
+            `${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+    return new LocalChannel(this.spawnPty(file, spawnArgs, base));
   }
 }
 
