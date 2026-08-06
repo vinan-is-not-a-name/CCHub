@@ -7,12 +7,19 @@ import {
 } from '../../../shared/protocol.js';
 import { StoredConfig } from './schema.js';
 
+/** Alphabetical by name (numeric-aware), stable so equal names keep config
+ * order. One sort here covers every consumer: the launch-dialog dropdowns,
+ * the config dialog lists, everywhere a snapshot is rendered. RecentLaunches
+ * is deliberately NOT sorted — it is a recency-ordered list by contract. */
+const byName = (a: { name: string }, b: { name: string }) =>
+  a.name.localeCompare(b.name, undefined, { numeric: true });
+
 export function toSnapshot(data: StoredConfig): SafeConfigSnapshot {
   return {
-    profiles: data.profiles.map(maskProfile),
-    servers: data.servers.map(maskServer),
-    presets: data.presets,
-    proxies: data.proxies,
+    profiles: data.profiles.map(maskProfile).sort(byName),
+    servers: data.servers.map(maskServer).sort(byName),
+    presets: data.presets.sort(byName),
+    proxies: data.proxies.sort(byName),
     defaults: data.defaults,
     recentLaunches: data.recentLaunches,
     appSettings: data.appSettings,

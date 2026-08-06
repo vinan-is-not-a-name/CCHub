@@ -108,6 +108,39 @@ export interface CondaEnvEntry {
   path?: string;
 }
 
+/**
+ * One deduplicated relay site in a balance.result payload.
+ *
+ * Balance is a property of (baseUrl, authToken), NOT of a provider preset —
+ * several presets may share one site (different model / name fields) and must
+ * not be queried N times or shown as N rows. The server groups profiles by
+ * that pair; `presetNames` lists every preset that maps onto it.
+ *
+ * Secrets stay server-side: `keyPreview` is the only token-derived field the
+ * client ever sees (same mask style as SafeAnthropicEnvProfile).
+ */
+export interface BalanceSiteView {
+  /** Normalized base URL (trailing slashes stripped) — displayed as-is. */
+  baseUrl: string;
+  keyPreview: string;
+  /** Every provider preset (profile) that maps onto this site, in config order. */
+  presetNames: string[];
+  /** Remaining balance; null when the query failed. */
+  remain: number | null;
+  /** Total quota; null when the query failed. */
+  limit: number | null;
+  /** Used quota; null when the query failed. */
+  used: number | null;
+  /** ISO-4217 currency of the three numbers above — USD for NewAPI relays,
+   * CNY for DeepSeek's official endpoint. */
+  currency: string;
+  /** Human-readable failure reason. Absent on success. Set to 'unsupported'
+   * for official Anthropic endpoints, which have no balance API. */
+  error?: string;
+  /** Server-side wall-clock of the probe, ms epoch. */
+  at: number;
+}
+
 export interface TerminalSnapshot {
   cols: number;
   rows: number;

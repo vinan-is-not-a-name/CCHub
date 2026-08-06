@@ -271,6 +271,122 @@ body {
   padding: 4px 0;
 }
 
+/* Balance pill + dropdown — sits next to the resource monitor. Click-driven
+   (unlike the hover resource popover) because it carries a Refresh button and
+   a scrollable 4-column table. Same tokens as .rm-popover so it reads on both
+   light and dark themes. */
+.balance-monitor {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 12px 0 0;
+}
+.balance-monitor[hidden] { display: none; }
+.balance-monitor .bal-pill {
+  appearance: none;
+  border: none;
+  background: transparent;
+  cursor: default;
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  padding: 0;
+  font-family: inherit;
+}
+.balance-monitor .bal-pill:hover { color: var(--text); }
+.balance-monitor .bal-pill::before {
+  content: '·';
+  opacity: 0.5;
+  margin-right: 4px;
+}
+.balance-monitor .bal-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  min-width: 380px;
+  max-width: 520px;
+  max-height: 60vh;
+  overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--line, #d1d5db);
+  border-radius: 6px;
+  background: var(--panel, #ffffff);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+  color: var(--foreground, #1f2937);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.balance-monitor .bal-dropdown[hidden] { display: none; }
+.balance-monitor .bal-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.balance-monitor .bal-title {
+  font-weight: 600;
+  font-size: 12px;
+}
+.balance-monitor .bal-updated {
+  flex: 1;
+  font-size: 10.5px;
+  color: var(--muted);
+}
+.balance-monitor .bal-refresh {
+  appearance: none;
+  border: 1px solid var(--line, #d1d5db);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 10.5px;
+  font-family: inherit;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+.balance-monitor .bal-refresh:hover {
+  color: var(--text);
+  border-color: var(--text);
+}
+.balance-monitor .bal-row {
+  display: grid;
+  grid-template-columns: 1.7fr auto 0.8fr 1.1fr;
+  gap: 10px;
+  padding: 3px 0;
+  align-items: baseline;
+}
+.balance-monitor .bal-row.bal-header {
+  font-size: 10.5px;
+  color: var(--muted);
+  padding-bottom: 4px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--line, #d1d5db);
+}
+.balance-monitor .bal-site,
+.balance-monitor .bal-preset {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.balance-monitor .bal-key {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  font-size: 11px;
+}
+.balance-monitor .bal-bal {
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  text-align: right;
+}
+.balance-monitor .bal-bal.bal-warn { color: var(--warning, #d97706); }
+.balance-monitor .bal-bal.bal-err { color: var(--danger, #dc2626); }
+.balance-monitor .bal-empty {
+  color: var(--muted);
+  font-style: italic;
+  padding: 4px 0;
+}
+
 .toolbar-actions {
   display: flex;
   flex: 0 0 auto;
