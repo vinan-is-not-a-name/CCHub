@@ -71,6 +71,8 @@ jobs:
 
       - run: npm ci
       - run: npm install -g @anthropic-ai/claude-code
+      - name: Skip claude onboarding (CI has no login method to pick)
+        run: node -e "const fs=require('fs'),os=require('os');const p=os.homedir()+'/.claude.json';let c={};try{c=JSON.parse(fs.readFileSync(p,'utf8'))}catch{}c.hasCompletedOnboarding=true;c.lastOnboardingVersion='2.0.56';fs.writeFileSync(p,JSON.stringify(c))"
       - run: npm run build
       - name: Install Playwright
         run: npx playwright install --with-deps chromium
