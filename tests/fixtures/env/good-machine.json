@@ -1,0 +1,16 @@
+{
+  "platform": "win32 10.0.26100",
+  "osVersion": "10.0.26100.7462 24H2",
+  "node": "v24.11.1",
+  "claude": "2.1.220 (Claude Code)",
+  "conhost": "10.0.26100.7306",
+  "conptyDll": "bundled dll present",
+  "ccTerminalId": "conemu",
+  "ccWouldPushKittyKeyboard": false,
+  "terminalEnv": {
+    "ConEmuANSI": "OFF",
+    "ConEmuPID": "<set: number>",
+    "ConEmuTask": "{cmd::Cmder}",
+    "ConEmuBuild": "<set: number>"
+  }
+}

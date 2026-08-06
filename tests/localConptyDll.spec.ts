@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test';
+import { requirePlatform } from './support/strictSkip.js';
 import * as fs from 'fs';
+import { spawn as realSpawn } from 'node-pty';
 import { EventEmitter } from 'events';
 import {
   LocalConnector,
@@ -92,14 +94,64 @@ test.describe('LocalConnector ConPTY selection', () => {
     expect(between).toContain('\x1b[1m');
     // The Win10 conhost signature. Asserted on every platform: on POSIX it can
     // never appear, on Windows it appears only if the system ConPTY got used.
+    //
+    // Measured limitation, so nobody reads more into a green than it carries:
+    // this assertion is VACUOUS on Win11 26100. Probed on conhost
+    // 10.0.26100.7306 with this exact input through both paths, the SGR run came
+    // back byte-identical either way — `CSI 1m`/`2m`/`7m` all preserved, no
+    // `97m`. It can only go red on a host whose conhost rewrites, i.e. the
+    // Win10 19045 box this bug was reported from. The test below is the part
+    // that has teeth on both.
     expect(between).not.toContain('\x1b[97m');
   });
 
+  test('the system ConPTY injects screen control the child never wrote', async () => {
+    requirePlatform('win32', 'ConPTY is a Windows API');
+    // Differential, and it bites on Win11 where the SGR assertion above cannot.
+    // Same input, same machine, the two ConPTY paths compared against each
+    // other rather than against a sequence I predicted.
+    //
+    // Measured on conhost 10.0.26100.7306 — the system ConPTY prepends
+    // `?25l 2J m H` and appends an `OSC 0` title plus `?25h`, 114 bytes against
+    // the bundled dll's 62 for a 25-byte payload. Two of those matter beyond
+    // byte count: `CSI 2J` erases the screen the client is restoring a snapshot
+    // onto, and the OSC 0 title carries the child executable's absolute path, so
+    // the host injects a filesystem path into a stream cc never wrote.
+    const withDll = await collect(spawnArgsFor(EMIT_BOLD), new LocalConnector());
+
+    const systemOnly = new LocalConnector({
+      // Force the fallback the way a missing/broken dll would, without touching
+      // the installed node-pty.
+      spawnPty: ((f: string, a: string[] | string, o: Record<string, unknown>) => {
+        if (o.useConptyDll) throw new Error('probe: simulate a dll that will not load');
+        return realSpawn(f, a as string[], o as never);
+      }) as never,
+      onNotice: () => {},
+    });
+    const withSystem = await collect(spawnArgsFor(EMIT_BOLD), systemOnly);
+
+    // Both must deliver the payload — the fallback works, that is its job.
+    expect(withDll, 'bundled dll lost the payload').toContain('<S>');
+    expect(withSystem, 'system ConPTY lost the payload').toContain('<S>');
+
+    // The bundled dll is pass-through: no erase, no title injection.
+    expect(withDll, 'bundled dll must not erase the screen').not.toContain('\x1b[2J');
+    expect(withDll, 'bundled dll must not inject a title').not.toContain('\x1b]0;');
+
+    // And the system path is measurably not pass-through, which is why the dll
+    // is preferred. If a future Windows build stops rewriting, this flips and
+    // the finding is that the workaround is no longer load-bearing — worth
+    // knowing either way.
+    const systemInjects = withSystem.includes('\x1b[2J') || withSystem.includes('\x1b]0;');
+    expect(systemInjects, 'system ConPTY unexpectedly matched the dll — re-measure before trusting it').toBe(true);
+    expect(withSystem.length, 'system ConPTY should be the wordier path').toBeGreaterThan(withDll.length);
+  });
+
   test('useConptyDll is requested when the dll exists', () => {
-    test.skip(process.platform !== 'win32', 'no ConPTY off Windows');
+    requirePlatform('win32', 'ConPTY is a Windows API');
     const seen: Array<Record<string, unknown>> = [];
     const connector = new LocalConnector({
-      spawnPty: ((f: string, a: string[] | string, o: Record<string, unknown>) => {
+      spawnPty: ((_f: string, _a: string[] | string, o: Record<string, unknown>) => {
         seen.push(o);
         return fakePty();
       }) as never,
@@ -110,12 +162,12 @@ test.describe('LocalConnector ConPTY selection', () => {
   });
 
   test('a throwing dll spawn falls back to the system ConPTY and says so', () => {
-    test.skip(process.platform !== 'win32', 'no ConPTY off Windows');
+    requirePlatform('win32', 'ConPTY is a Windows API');
     const notices: string[] = [];
     const attempts: Array<Record<string, unknown>> = [];
     const connector = new LocalConnector({
       onNotice: (m) => notices.push(m),
-      spawnPty: ((f: string, a: string[] | string, o: Record<string, unknown>) => {
+      spawnPty: ((_f: string, _a: string[] | string, o: Record<string, unknown>) => {
         attempts.push(o);
         if (o.useConptyDll) throw new Error('LoadLibrary conpty.dll failed');
         return fakePty();

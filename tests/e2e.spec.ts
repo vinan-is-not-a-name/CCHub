@@ -1,10 +1,16 @@
 import { test, expect } from '@playwright/test';
 import WebSocket from 'ws';
 
-// ANTHROPIC_API_KEY is the definitive signal on CI (injected via GitHub
-// Secrets). TEST_HAS_CLAUDE is a convenience gate for local dev where the
-// user authenticated via `claude login` rather than setting the env var.
-const hasClaude = !!process.env.ANTHROPIC_API_KEY || process.env.TEST_HAS_CLAUDE === 'true';
+import { requireClaude, requireEnv } from './support/strictSkip.js';
+
+// `requireClaude()` at the top of each cc-dependent test answers "can this
+// machine run a real cc" by probing for the binary. The previous gate
+// (`ANTHROPIC_API_KEY || TEST_HAS_CLAUDE === 'true'`) asked whether someone had
+// set a flag instead, so on any dev machine that authenticated with
+// `claude login` and set nothing, all 13 of these tests sat out the run — and
+// they are the only tests in the suite that exercise a real cc. Set
+// TEST_HAS_CLAUDE=false to opt out deliberately; run with CCHUB_TEST_STRICT=1
+// to make an unavailable cc a failure rather than a silent skip.
 
 // Tests share one cchub server across all projects (chromium → firefox → webkit).
 // Without per-test cleanup, sessions created by earlier projects leak and break
@@ -292,7 +298,7 @@ test('切到 grid 布局时 sessions 侧栏收起，切回 tabs 复现（无需 
 });
 
 test('local session: 创建 → tab 出现 → 终端有输出', async ({ page }) => {
-  test.skip(!hasClaude, 'TEST_HAS_CLAUDE not set');
+  requireClaude();
   const preset = process.env.TEST_LOCAL_PRESET ?? 'cchub';
   await createSessionByPreset(page, preset);
   // tab 出现
@@ -302,7 +308,7 @@ test('local session: 创建 → tab 出现 → 终端有输出', async ({ page }
 });
 
 test('local session: 创建后无需刷新即可看到内容、viewport 高度跟随容器', async ({ page }) => {
-  test.skip(!hasClaude, 'TEST_HAS_CLAUDE not set');
+  requireClaude();
   const preset = process.env.TEST_LOCAL_PRESET ?? 'cchub';
   await createSessionByPreset(page, preset);
   await expect(page.locator('.tab')).toBeVisible({ timeout: 10000 });
@@ -326,7 +332,7 @@ test('local session: 创建后无需刷新即可看到内容、viewport 高度�
 // 处理后屏幕顶部不残留垃圾」，是回归烟测。三引擎（chromium/firefox/webkit）各跑一遍，
 // 确保每个浏览器的真实启动渲染都无残骸。
 test('local session: 真实启动后顶部无控制字符残骸（端到端哨兵）', async ({ page }) => {
-  test.skip(!hasClaude, 'TEST_HAS_CLAUDE not set');
+  requireClaude();
   const preset = process.env.TEST_LOCAL_PRESET ?? 'cchub';
   await createSessionByPreset(page, preset);
   await expect(page.locator('.tab')).toBeVisible({ timeout: 10000 });
@@ -343,7 +349,7 @@ test('local session: 真实启动后顶部无控制字符残骸（端到端哨�
 });
 
 test('local session: 发送输入 → 收到回显', async ({ page }) => {
-  test.skip(!hasClaude, 'TEST_HAS_CLAUDE not set');
+  requireClaude();
   const preset = process.env.TEST_LOCAL_PRESET ?? 'cchub';
   await createSessionByPreset(page, preset);
   await expect(page.locator('.tab')).toBeVisible({ timeout: 10000 });
@@ -357,7 +363,7 @@ test('local session: 发送输入 → 收到回显', async ({ page }) => {
 });
 
 test('local session: 关闭 tab → tab 消失', async ({ page }) => {
-  test.skip(!hasClaude, 'TEST_HAS_CLAUDE not set');
+  requireClaude();
   const preset = process.env.TEST_LOCAL_PRESET ?? 'cchub';
   await createSessionByPreset(page, preset);
   const tab = page.locator('.tab').first();
@@ -370,7 +376,7 @@ test('local session: 关闭 tab → tab 消失', async ({ page }) => {
 // 这是本功能的端到端核心验证——区别于上面"无 claude"的纯 UI 切换测试，这里需要真实
 // 的两个终端 DOM 同框渲染。
 test('grid 布局: 两个 session 的终端同时可见并带标签', async ({ page }) => {
-  test.skip(!hasClaude, 'TEST_HAS_CLAUDE not set');
+  requireClaude();
   const preset = process.env.TEST_LOCAL_PRESET ?? 'cchub';
   await createSessionByPreset(page, preset);
   await expect(page.locator('.tab')).toHaveCount(1, { timeout: 10000 });
@@ -430,7 +436,7 @@ test('grid 布局: 两个 session 的终端同时可见并带标签', async ({ p
 });
 
 test('session: PTY cols/rows 与 xterm 实际容纳行列一致', async ({ page }) => {
-  test.skip(!hasClaude, 'TEST_HAS_CLAUDE not set');
+  requireClaude();
   const preset = process.env.TEST_LOCAL_PRESET ?? process.env.TEST_REMOTE_PRESET ?? 'cchub';
   await createSessionByPreset(page, preset);
   await expect(page.locator('.tab')).toBeVisible({ timeout: 15000 });
@@ -439,7 +445,7 @@ test('session: PTY cols/rows 与 xterm 实际容纳行列一致', async ({ page 
   await page.locator('#terminal-container').click();
   await page.waitForTimeout(300);
 
-  const { ptyRows, fitRows, ptyCols, fitCols } = await page.evaluate(() => {
+  const { ptyRows, fitRows, ptyCols, fitCols, cellW, cellH, screenW, vpH } = await page.evaluate(() => {
     // term.cols/rows is the authoritative PTY size from the active xterm instance
     const terms = (window as any).__cc_terminals || {};
     const term = Object.values(terms)[0] as any;
@@ -447,32 +453,42 @@ test('session: PTY cols/rows 与 xterm 实际容纳行列一致', async ({ page 
     const ptyRows = term?.rows ?? 0;
     // Find the visible terminal div for the rendered measurements
     const termEl = [...document.querySelectorAll('#terminal-container > div')].find(
-      el => el.style.visibility === 'visible'
+      el => (el as HTMLElement).style.visibility === 'visible'
     );
     const vp = termEl && termEl.querySelector('.xterm-viewport');
     const screen = termEl && termEl.querySelector('.xterm-screen');
-    const cm = document.querySelector('.xterm-char-measure-element');
-    const charH = (cm && cm.getBoundingClientRect().height) || 18;
-    const charW = (cm && cm.getBoundingClientRect().width)
-      ? cm.getBoundingClientRect().width / ((cm.textContent && cm.textContent.length) || 32)
-      : 8;
+    // Cell size comes from xterm's own render service — the same number it used
+    // to decide cols/rows. It must NOT be re-derived from
+    // `.xterm-char-measure-element`: that element holds whatever glyph xterm
+    // last measured, and while cc is running that is `⏸` from its footer, a
+    // DOUBLE-WIDTH char. Dividing its width by its length yielded ~14px instead
+    // of the real 8.4px cell, so the expected column count came out ~70 against
+    // an actual 117 and this assertion failed on a correctly-sized terminal.
+    const dims = (term as any)?._core?._renderService?.dimensions?.css?.cell;
+    const cellW = dims?.width ?? 0;
+    const cellH = dims?.height ?? 0;
     const vpH = (vp && vp.getBoundingClientRect().height) || 0;
     const screenW = (screen && screen.getBoundingClientRect().width) || 0;
     return {
       ptyRows,
-      fitRows: Math.floor(vpH / charH),
+      fitRows: cellH > 0 ? Math.floor(vpH / cellH) : 0,
       ptyCols,
-      fitCols: Math.floor(screenW / charW),
+      fitCols: cellW > 0 ? Math.floor(screenW / cellW) : 0,
+      cellW, cellH, screenW, vpH,
     };
   });
 
+  // Fail with the inputs, not just the verdict — a bare "117 != 70" sent the
+  // last investigation looking at the app instead of at the measurement.
+  const detail = `cellW=${cellW} cellH=${cellH} screenW=${screenW} vpH=${vpH}`;
+  expect(cellW, `xterm must report a cell width (${detail})`).toBeGreaterThan(0);
   // Allow ±2 tolerance for rounding
-  expect(Math.abs(ptyRows - fitRows)).toBeLessThanOrEqual(2);
-  expect(Math.abs(ptyCols - fitCols)).toBeLessThanOrEqual(2);
+  expect(Math.abs(ptyRows - fitRows), `rows: pty=${ptyRows} fit=${fitRows} ${detail}`).toBeLessThanOrEqual(2);
+  expect(Math.abs(ptyCols - fitCols), `cols: pty=${ptyCols} fit=${fitCols} ${detail}`).toBeLessThanOrEqual(2);
 });
 
 test('session: 滚动条可拖拽', async ({ page }) => {
-  test.skip(!hasClaude, 'TEST_HAS_CLAUDE not set');
+  requireClaude();
   const preset = process.env.TEST_LOCAL_PRESET ?? process.env.TEST_REMOTE_PRESET ?? 'cchub';
   await createSessionByPreset(page, preset);
   await expect(page.locator('.tab')).toBeVisible({ timeout: 15000 });
@@ -534,7 +550,7 @@ test('session: 滚动条可拖拽', async ({ page }) => {
 // 漫游值,但渲染层永远盖不住 !important。所以断言看 getBoundingClientRect
 // 而不是 style.left,期望位置 = `❯` 那行的 viewport y。
 test('IME 锚定: 组字期间 cv 与 ta 渲染位置都钉在 cc prompt 行', async ({ page }) => {
-  test.skip(!hasClaude, 'TEST_HAS_CLAUDE not set');
+  requireClaude();
   const preset = process.env.TEST_LOCAL_PRESET ?? 'cchub';
   await createSessionByPreset(page, preset);
   await expect(page.locator('.tab')).toBeVisible({ timeout: 10000 });
@@ -740,7 +756,7 @@ test('IME 锚定: 组字期间 cv 与 ta 渲染位置都钉在 cc prompt 行', a
 });
 
 test('local session: 刷新后 wheel 仍被 xterm forward 给 cc（DEC mode 恢复）', async ({ page }) => {
-  test.skip(!hasClaude, 'TEST_HAS_CLAUDE not set');
+  requireClaude();
   const preset = process.env.TEST_LOCAL_PRESET ?? 'cchub';
   await createSessionByPreset(page, preset);
   await expect(page.locator('.tab')).toBeVisible({ timeout: 10000 });
@@ -791,8 +807,8 @@ test('local session: 刷新后 wheel 仍被 xterm forward 给 cc（DEC mode 恢�
 });
 
 test('remote session: 创建 → tab 出现 → 终端有输出', async ({ page }) => {
-  test.skip(!hasClaude, 'TEST_HAS_CLAUDE not set');
-  test.skip(!process.env.TEST_REMOTE_PRESET, 'TEST_REMOTE_PRESET not set');
+  requireClaude();
+  requireEnv('TEST_REMOTE_PRESET', 'needs an SSH preset to launch against');
   // The remote path (SSH → login bash → conda activate → claude) is the slowest
   // startup in the suite, and this is the last test to run across three engines.
   // The multi-session grid tests added real claude spawns, lengthening the run
@@ -807,7 +823,7 @@ test('remote session: 创建 → tab 出现 → 终端有输出', async ({ page 
 });
 
 test('recent launches: chip 单击直接再启动，Shift+click 预填 dialog', async ({ page }) => {
-  test.skip(!hasClaude, 'TEST_HAS_CLAUDE not set');
+  requireClaude();
   const preset = process.env.TEST_LOCAL_PRESET ?? 'cchub';
 
   // Arrange: create a session so recentLaunches gets a chip, then close it so
