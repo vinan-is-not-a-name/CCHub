@@ -70,7 +70,10 @@ jobs:
           echo "TEST_SSH_USER=$env:USERNAME" >> $env:GITHUB_ENV
 
       - run: npm ci
-      - run: npm install -g @anthropic-ai/claude-code
+      # Pin the claude the e2e suite is written against (the 2.1.220 the dev
+      # machine runs). Latest claude 2.1.223+ changed its UI: no login-less
+      # alt-screen, so the input/scrollback/alt-screen assertions would fail.
+      - run: npm install -g @anthropic-ai/claude-code@2.1.220
       - name: Skip claude onboarding (CI has no login method to pick)
         run: node scripts/ciOnboard.cjs
       - run: npm run build
