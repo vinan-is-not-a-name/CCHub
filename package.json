@@ -29,7 +29,8 @@
     "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.client.json",
     "dev": "concurrently -k \"tsx watch src/server/entry/index.ts\" \"node scripts/build.js --watch\"",
     "start": "node dist/server/entry/index.js",
-    "test": "playwright test"
+    "test": "playwright test",
+    "doctor": "node scripts/doctor.mjs"
   },
   "files": [
     "dist/"

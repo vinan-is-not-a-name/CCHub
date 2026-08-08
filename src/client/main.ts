@@ -16,6 +16,7 @@ import { mountDirectoryDialog } from './views/directoryDialog.js';
 import { mountNotifications } from './views/notify.js';
 
 import { mountResourceMonitor } from './views/resourceMonitor.js';
+import { mountBalanceMonitor } from './views/balanceMonitor.js';
 import type { ClientMessage, ServerMessage } from '../shared/protocol.js';
 
 scrubTokenQuery();
@@ -41,6 +42,7 @@ const notify = mountNotifications(deps);
 mountSessionView(deps, params, notify);
 mountLayoutToggle(deps);
 mountResourceMonitor(deps);
+mountBalanceMonitor(deps);
 
 // Pump every server message through the RPC matcher first; views subscribe to
 // their own messages via deps.conn.onMessage.

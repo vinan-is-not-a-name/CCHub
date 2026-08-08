@@ -5,6 +5,7 @@ import type {
   SessionTarget,
 } from './domain.js';
 import type {
+  BalanceSiteView,
   CondaEnvEntry,
   DirectoryEntry,
   PresetWriteRequest,
@@ -94,7 +95,12 @@ export type ClientMessage =
   // server, then (client-side) reload the listing. `name` is validated on both
   // ends via isValidFolderName so it stays one traversal-safe segment.
   | { type: 'launch.cwd.mkdir'; serverId?: string; parent: string; name: string; requestId: string }
-  | { type: 'launch.conda.list'; serverId?: string; requestId: string };
+  | { type: 'launch.conda.list'; serverId?: string; requestId: string }
+  // Probe every registered provider profile's relay-site balance. The server
+  // groups profiles by (baseUrl, authToken) — balance is a property of the
+  // site, not of the preset — queries each distinct site once (bounded
+  // concurrency, per-site timeout), and replies with balance.result.
+  | { type: 'balance.query'; requestId: string };
 
 /** Periodic host-resource snapshot pushed to every authenticated client for
  * the topbar CPU/memory pill. Not opt-in: at cchub's scale (single-user,
@@ -178,6 +184,11 @@ export type ServerMessage =
   // returns the created directory's full `path` so the client can navigate in.
   | { type: 'launch.cwd.mkdir.result'; requestId: string; ok: boolean; path?: string; error?: string }
   | { type: 'launch.conda.list.result'; requestId: string; envs: CondaEnvEntry[]; error?: string }
+  // Result of a balance.query probe. `sites` is deduplicated per
+  // (baseUrl, authToken) — several presets sharing one relay site collapse
+  // into a single row listing all of them — sorted by remaining balance
+  // descending, failures last. Each site carries its own `at` probe time.
+  | { type: 'balance.result'; requestId: string; sites: BalanceSiteView[] }
   // Host-resource pill for the topbar. See MetricsSnapshotMsg.
   | MetricsSnapshotMsg
   // catch-all

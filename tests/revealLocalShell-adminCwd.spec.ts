@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { requirePlatform, skipUnlessStrict } from './support/strictSkip.js';
 import { spawn } from 'child_process';
 import { existsSync, mkdirSync, readFileSync, unlinkSync } from 'fs';
 import { randomBytes } from 'crypto';
@@ -88,8 +89,8 @@ async function spawnAndRead(spec: ReturnType<typeof specWithProbe>, probePath: s
 }
 
 test.describe('admin reveal: elevated shell lands in the passed cwd', () => {
-  test.skip(!isWindows, 'reveal targets are Windows-only');
-  test.skip(skipUac, 'CCHUB_SKIP_UAC_TESTS is set (UAC prompts require interactive click)');
+  requirePlatform('win32', 'reveal targets are Windows-only');
+  skipUnlessStrict(skipUac, 'unset-flag', 'CCHUB_SKIP_UAC_TESTS is set (UAC prompts require an interactive click)');
   // Each test pops a UAC prompt on the host desktop. Serial keeps the
   // prompts one at a time.
   test.describe.configure({ mode: 'serial' });

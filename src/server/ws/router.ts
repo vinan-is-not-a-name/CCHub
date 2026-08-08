@@ -4,6 +4,7 @@ import { handleSessionMessage } from './handlers/session.js';
 import { handleConfigMessage } from './handlers/config.js';
 import { handleLaunchMessage } from './handlers/launch.js';
 import { handleShellMessage } from './handlers/shell.js';
+import { handleBalanceMessage } from './handlers/balance.js';
 
 /** Route an authenticated client message to the right handler. */
 export function dispatch(ctx: WsCtx, msg: ClientMessage): void {
@@ -48,6 +49,9 @@ export function dispatch(ctx: WsCtx, msg: ClientMessage): void {
     case 'launch.cwd.mkdir':
     case 'launch.conda.list':
       handleLaunchMessage(ctx, msg);
+      return;
+    case 'balance.query':
+      handleBalanceMessage(ctx, msg);
       return;
   }
 }

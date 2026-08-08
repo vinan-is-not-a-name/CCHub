@@ -1,5 +1,6 @@
 import { ConfigService, assertCondaEnv } from '../domain/config/index.js';
 import { AnthropicEnv, LaunchOverrides, LaunchPreset, ProxyTunnel, ResolvedLaunch, AnthropicEnvProfile, SessionTarget } from '../../shared/protocol.js';
+import { normalizeTerminalEnv } from '../../shared/envKeys.js';
 
 export interface CreateSessionRequest {
   cwd?: string;
@@ -87,7 +88,10 @@ function resolveLaunchParams(input: CreateSessionRequest, launch: LaunchOverride
 }
 
 function buildEnv(profileEnv?: AnthropicEnv, proxy?: ProxyTunnel): Record<string, string> {
-  const env: Record<string, string> = { ...(process.env as Record<string, string>) };
+  // normalizeTerminalEnv first, so a profile that deliberately sets TERM or a
+  // terminal var still wins — the strip is about what the *host shell* leaked,
+  // not about overriding an explicit choice.
+  const env = normalizeTerminalEnv(process.env as Record<string, string>);
   for (const [key, value] of Object.entries(profileEnv ?? {})) {
     if (value) env[key] = value;
   }

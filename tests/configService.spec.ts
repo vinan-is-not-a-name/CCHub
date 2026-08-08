@@ -234,3 +234,65 @@ test.describe('ConfigService.recordRecentLaunch', () => {
     expect(snap.recentLaunches).toEqual([]);
   });
 });
+
+test.describe('ConfigService snapshot ordering', () => {
+  /** Pure-ASCII names only: localeCompare's CJK ordering (pinyin vs Unicode)
+   * depends on the host locale, which would make the assertion vacuous or
+   * flaky across machines. The alphabetical rule itself is locale-free. */
+  test('profiles, servers, presets and proxies come back sorted by name', () => {
+    const svc = makeService({
+      profiles: [
+        { id: 'p2', name: 'Zeta Relay', env: { ANTHROPIC_BASE_URL: 'https://z.example' }, createdAt: 0, updatedAt: 0 },
+        { id: 'p1', name: 'Alpha Relay', env: { ANTHROPIC_BASE_URL: 'https://a.example' }, createdAt: 0, updatedAt: 0 },
+        { id: 'p3', name: 'Middle Relay', env: {}, createdAt: 0, updatedAt: 0 },
+      ],
+      servers: [
+        localServer('s2', { name: 'Zulu Server' }),
+        localServer('s1', { name: 'Bravo Server' }),
+      ],
+      presets: [
+        { id: 'q2', name: 'Train Run', serverId: 's1', cwd: '/w', createdAt: 0, updatedAt: 0 },
+        { id: 'q1', name: 'Daily Sync', serverId: 's1', cwd: '/w', createdAt: 0, updatedAt: 0 },
+      ],
+      proxies: [
+        { id: 'r2', name: 'Corp Proxy', bindPort: 1, host: 'h', port: 2, createdAt: 0, updatedAt: 0 },
+        { id: 'r1', name: 'Auto Proxy', bindPort: 1, host: 'h', port: 2, createdAt: 0, updatedAt: 0 },
+      ],
+    });
+    const snap = svc.getSnapshot();
+    expect(snap.profiles.map((p) => p.name)).toEqual(['Alpha Relay', 'Middle Relay', 'Zeta Relay']);
+    expect(snap.servers.map((s) => s.name)).toEqual(['Bravo Server', 'Zulu Server']);
+    expect(snap.presets.map((p) => p.name)).toEqual(['Daily Sync', 'Train Run']);
+    expect(snap.proxies.map((p) => p.name)).toEqual(['Auto Proxy', 'Corp Proxy']);
+  });
+
+  test('sorting is stable — equal names keep config order', () => {
+    const svc = makeService({
+      servers: [
+        localServer('first', { name: 'Same Name' }),
+        localServer('second', { name: 'Same Name' }),
+      ],
+    });
+    const snap = svc.getSnapshot();
+    expect(snap.servers.map((s) => s.id)).toEqual(['first', 'second']);
+  });
+
+  test('numeric-aware ordering keeps 10 after 9', () => {
+    const svc = makeService({
+      presets: [
+        { id: 'ten', name: 'Run 10', serverId: 's1', cwd: '/w', createdAt: 0, updatedAt: 0 },
+        { id: 'two', name: 'Run 2', serverId: 's1', cwd: '/w', createdAt: 0, updatedAt: 0 },
+      ],
+    });
+    const snap = svc.getSnapshot();
+    expect(snap.presets.map((p) => p.name)).toEqual(['Run 2', 'Run 10']);
+  });
+
+  test('recentLaunches is NOT sorted — recency is its contract', () => {
+    const svc = makeService({});
+    svc.recordRecentLaunch({ presetId: 'a', cwd: '/w', presetNameSnapshot: 'Z Launcher' });
+    svc.recordRecentLaunch({ presetId: 'b', cwd: '/w', presetNameSnapshot: 'A Launcher' });
+    const snap = svc.getSnapshot();
+    expect(snap.recentLaunches.map((r) => r.presetId)).toEqual(['b', 'a']);
+  });
+});

@@ -22,6 +22,11 @@ test-stderr.txt
 /playwright/.auth/
 /.playwright-mcp/
 
+# Raw, unredacted CCHUB_RECORD_PTY captures. These carry the capturing machine's
+# cwd/account details — run them through scripts/redactCapture.mjs into
+# tests/fixtures/pty/ before committing anything from here.
+/ptyraw/
+
 # Dogfood/debug screenshots and snapshots (root only)
 /*.png
 /*.jpg

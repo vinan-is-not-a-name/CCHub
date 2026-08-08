@@ -1,10 +1,16 @@
 import { test, expect } from '@playwright/test';
 import WebSocket from 'ws';
 
-// ANTHROPIC_API_KEY is the definitive signal on CI (injected via GitHub
-// Secrets). TEST_HAS_CLAUDE is a convenience gate for local dev where the
-// user authenticated via `claude login` rather than setting the env var.
-const hasClaude = !!process.env.ANTHROPIC_API_KEY || process.env.TEST_HAS_CLAUDE === 'true';
+import { requireClaude, requireEnv, requireSignal } from './support/strictSkip.js';
+
+// `requireClaude()` at the top of each cc-dependent test answers "can this
+// machine run a real cc" by probing for the binary. The previous gate
+// (`ANTHROPIC_API_KEY || TEST_HAS_CLAUDE === 'true'`) asked whether someone had
+// set a flag instead, so on any dev machine that authenticated with
+// `claude login` and set nothing, all 13 of these tests sat out the run — and
+// they are the only tests in the suite that exercise a real cc. Set
+// TEST_HAS_CLAUDE=false to opt out deliberately; run with CCHUB_TEST_STRICT=1
+// to make an unavailable cc a failure rather than a silent skip.
 
 // Tests share one cchub server across all projects (chromium → firefox → webkit).
 // Without per-test cleanup, sessions created by earlier projects leak and break
@@ -292,7 +298,7 @@ test('切到 grid 布局时 sessions 侧栏收起，切回 tabs 复现（无需 
 });
 
 test('local session: 创建 → tab 出现 → 终端有输出', async ({ page }) => {
-  test.skip(!hasClaude, 'TEST_HAS_CLAUDE not set');
+  requireClaude();
   const preset = process.env.TEST_LOCAL_PRESET ?? 'cchub';
   await createSessionByPreset(page, preset);
   // tab 出现
@@ -302,7 +308,7 @@ test('local session: 创建 → tab 出现 → 终端有输出', async ({ page }
 });
 
 test('local session: 创建后无需刷新即可看到内容、viewport 高度跟随容器', async ({ page }) => {
-  test.skip(!hasClaude, 'TEST_HAS_CLAUDE not set');
+  requireClaude();
   const preset = process.env.TEST_LOCAL_PRESET ?? 'cchub';
   await createSessionByPreset(page, preset);
   await expect(page.locator('.tab')).toBeVisible({ timeout: 10000 });
@@ -326,7 +332,7 @@ test('local session: 创建后无需刷新即可看到内容、viewport 高度�
 // 处理后屏幕顶部不残留垃圾」，是回归烟测。三引擎（chromium/firefox/webkit）各跑一遍，
 // 确保每个浏览器的真实启动渲染都无残骸。
 test('local session: 真实启动后顶部无控制字符残骸（端到端哨兵）', async ({ page }) => {
-  test.skip(!hasClaude, 'TEST_HAS_CLAUDE not set');
+  requireClaude();
   const preset = process.env.TEST_LOCAL_PRESET ?? 'cchub';
   await createSessionByPreset(page, preset);
   await expect(page.locator('.tab')).toBeVisible({ timeout: 10000 });
@@ -343,7 +349,7 @@ test('local session: 真实启动后顶部无控制字符残骸（端到端哨�
 });
 
 test('local session: 发送输入 → 收到回显', async ({ page }) => {
-  test.skip(!hasClaude, 'TEST_HAS_CLAUDE not set');
+  requireClaude();
   const preset = process.env.TEST_LOCAL_PRESET ?? 'cchub';
   await createSessionByPreset(page, preset);
   await expect(page.locator('.tab')).toBeVisible({ timeout: 10000 });
@@ -357,7 +363,7 @@ test('local session: 发送输入 → 收到回显', async ({ page }) => {
 });
 
 test('local session: 关闭 tab → tab 消失', async ({ page }) => {
-  test.skip(!hasClaude, 'TEST_HAS_CLAUDE not set');
+  requireClaude();
   const preset = process.env.TEST_LOCAL_PRESET ?? 'cchub';
   await createSessionByPreset(page, preset);
   const tab = page.locator('.tab').first();
@@ -370,7 +376,7 @@ test('local session: 关闭 tab → tab 消失', async ({ page }) => {
 // 这是本功能的端到端核心验证——区别于上面"无 claude"的纯 UI 切换测试，这里需要真实
 // 的两个终端 DOM 同框渲染。
 test('grid 布局: 两个 session 的终端同时可见并带标签', async ({ page }) => {
-  test.skip(!hasClaude, 'TEST_HAS_CLAUDE not set');
+  requireClaude();
   const preset = process.env.TEST_LOCAL_PRESET ?? 'cchub';
   await createSessionByPreset(page, preset);
   await expect(page.locator('.tab')).toHaveCount(1, { timeout: 10000 });
@@ -430,7 +436,7 @@ test('grid 布局: 两个 session 的终端同时可见并带标签', async ({ p
 });
 
 test('session: PTY cols/rows 与 xterm 实际容纳行列一致', async ({ page }) => {
-  test.skip(!hasClaude, 'TEST_HAS_CLAUDE not set');
+  requireClaude();
   const preset = process.env.TEST_LOCAL_PRESET ?? process.env.TEST_REMOTE_PRESET ?? 'cchub';
   await createSessionByPreset(page, preset);
   await expect(page.locator('.tab')).toBeVisible({ timeout: 15000 });
@@ -439,7 +445,7 @@ test('session: PTY cols/rows 与 xterm 实际容纳行列一致', async ({ page 
   await page.locator('#terminal-container').click();
   await page.waitForTimeout(300);
 
-  const { ptyRows, fitRows, ptyCols, fitCols } = await page.evaluate(() => {
+  const { ptyRows, fitRows, ptyCols, fitCols, cellW, cellH, screenW, vpH } = await page.evaluate(() => {
     // term.cols/rows is the authoritative PTY size from the active xterm instance
     const terms = (window as any).__cc_terminals || {};
     const term = Object.values(terms)[0] as any;
@@ -447,73 +453,104 @@ test('session: PTY cols/rows 与 xterm 实际容纳行列一致', async ({ page 
     const ptyRows = term?.rows ?? 0;
     // Find the visible terminal div for the rendered measurements
     const termEl = [...document.querySelectorAll('#terminal-container > div')].find(
-      el => el.style.visibility === 'visible'
+      el => (el as HTMLElement).style.visibility === 'visible'
     );
     const vp = termEl && termEl.querySelector('.xterm-viewport');
     const screen = termEl && termEl.querySelector('.xterm-screen');
-    const cm = document.querySelector('.xterm-char-measure-element');
-    const charH = (cm && cm.getBoundingClientRect().height) || 18;
-    const charW = (cm && cm.getBoundingClientRect().width)
-      ? cm.getBoundingClientRect().width / ((cm.textContent && cm.textContent.length) || 32)
-      : 8;
+    // Cell size comes from xterm's own render service — the same number it used
+    // to decide cols/rows. It must NOT be re-derived from
+    // `.xterm-char-measure-element`: that element holds whatever glyph xterm
+    // last measured, and while cc is running that is `⏸` from its footer, a
+    // DOUBLE-WIDTH char. Dividing its width by its length yielded ~14px instead
+    // of the real 8.4px cell, so the expected column count came out ~70 against
+    // an actual 117 and this assertion failed on a correctly-sized terminal.
+    const dims = (term as any)?._core?._renderService?.dimensions?.css?.cell;
+    const cellW = dims?.width ?? 0;
+    const cellH = dims?.height ?? 0;
     const vpH = (vp && vp.getBoundingClientRect().height) || 0;
     const screenW = (screen && screen.getBoundingClientRect().width) || 0;
     return {
       ptyRows,
-      fitRows: Math.floor(vpH / charH),
+      fitRows: cellH > 0 ? Math.floor(vpH / cellH) : 0,
       ptyCols,
-      fitCols: Math.floor(screenW / charW),
+      fitCols: cellW > 0 ? Math.floor(screenW / cellW) : 0,
+      cellW, cellH, screenW, vpH,
     };
   });
 
+  // Fail with the inputs, not just the verdict — a bare "117 != 70" sent the
+  // last investigation looking at the app instead of at the measurement.
+  const detail = `cellW=${cellW} cellH=${cellH} screenW=${screenW} vpH=${vpH}`;
+  expect(cellW, `xterm must report a cell width (${detail})`).toBeGreaterThan(0);
   // Allow ±2 tolerance for rounding
-  expect(Math.abs(ptyRows - fitRows)).toBeLessThanOrEqual(2);
-  expect(Math.abs(ptyCols - fitCols)).toBeLessThanOrEqual(2);
+  expect(Math.abs(ptyRows - fitRows), `rows: pty=${ptyRows} fit=${fitRows} ${detail}`).toBeLessThanOrEqual(2);
+  expect(Math.abs(ptyCols - fitCols), `cols: pty=${ptyCols} fit=${fitCols} ${detail}`).toBeLessThanOrEqual(2);
 });
 
-test('session: 滚动条可拖拽', async ({ page }) => {
-  test.skip(!hasClaude, 'TEST_HAS_CLAUDE not set');
+test('session: 终端 main buffer 滚动(滚轮)', async ({ page }) => {
+  requireClaude();
   const preset = process.env.TEST_LOCAL_PRESET ?? process.env.TEST_REMOTE_PRESET ?? 'cchub';
   await createSessionByPreset(page, preset);
   await expect(page.locator('.tab')).toBeVisible({ timeout: 15000 });
   await expect(page.locator('#terminal-container .xterm-rows')).not.toBeEmpty({ timeout: 15000 });
 
-  // Inject scrollback. Claude Code runs in the alternate screen buffer (which
-  // has no scrollback by design — like vim/less), so we exit alt-screen mode
-  // first via DECRST 1049, then write 200 lines into the normal buffer.
-  await page.evaluate(() => {
+  // Inject scrollback, then verify wheel scrolling works in the main buffer.
+  //
+  // cc's alt-screen UI (?1049h) has no scrollback by design — the wheel is
+  // forwarded to cc as mouse events and there is nothing for the viewport to
+  // scroll — so the test first exits alt-screen via DECRST 1049 and writes
+  // 200 lines into the normal buffer. (This mirrors the earlier scrollbar-drag
+  // test; cc-remote never paints a scrollbar at all, wheel is the interaction.)
+  //
+  // Mouse tracking is reset too, explicitly. On the alt-screen path DECRST
+  // 1049 restores the main buffer's saved mouse-mode (off). But a login-less
+  // win32 cc renders its whole UI in the main buffer with tracking ON the
+  // entire time; there is no alt-screen exit to reset it, so without the
+  // explicit DECRST the wheel events get encoded as mouse escapes and sent to
+  // cc instead of scrolling the viewport.
+  //
+  // A logged-in cc keeps repainting and re-declares ?1049h every frame, so a
+  // DECRST 1049 we inject does not stick — the alt screen comes back and the
+  // injected lines land in a buffer with no scrollback. That machine has
+  // nothing scrollable, so the test skips rather than asserts; the no-signal
+  // skip turns into a failure under CCHUB_TEST_STRICT=1.
+  const bufferType = await page.evaluate(async () => {
     const terms = (window as any).__cc_terminals || {};
     const term = Object.values(terms)[0] as any;
-    if (!term) return;
+    if (!term) return { type: '' };
     term.write('\x1b[?1049l');
+    term.write('\x1b[?1006l\x1b[?1000l');
     let payload = '';
     for (let i = 0; i < 200; i++) payload += `scrollback line ${i}\r\n`;
     term.write(payload);
+    await new Promise((r) => setTimeout(r, 500));
+    return { type: term.buffer.active.type as string };
   });
-  await page.waitForTimeout(500);
+  requireSignal(bufferType.type === 'normal', 'cc lets the terminal stay in the main buffer after DECRST 1049');
+  await page.waitForTimeout(200);
 
   // Target the visible terminal's viewport only
   const vp = page.locator('#terminal-container > div[style*="visibility: visible"] .xterm-viewport');
   const box = await vp.boundingBox();
   if (!box) throw new Error('viewport not found');
 
-  // xterm auto-scrolls to bottom on write — scroll to top so the drag has somewhere to go.
+  // xterm auto-scrolls to bottom on write — scroll to top so the wheel has
+  // somewhere to go.
   await vp.evaluate((el: HTMLElement) => { el.scrollTop = 0; });
   await page.waitForTimeout(50);
   const before = await vp.evaluate((el: HTMLElement) => el.scrollTop);
   expect(before).toBe(0);
 
-  // Drag from near the top of the scrollbar to 40% down
-  const sbX = box.x + box.width - 8;
-  const sbY1 = box.y + 20;
-  const sbY2 = box.y + box.height * 0.4;
-  await page.mouse.move(sbX, sbY1);
-  await page.mouse.down();
-  for (let i = 1; i <= 8; i++) {
-    await page.mouse.move(sbX, sbY1 + (sbY2 - sbY1) * i / 8);
-    await page.waitForTimeout(20);
-  }
-  await page.mouse.up();
+  // Wheel down → viewport scrolls (tracking is off, so xterm handles it
+  // locally instead of encoding the event for cc).
+  await vp.dispatchEvent('wheel', {
+    deltaY: 300,
+    deltaMode: 0,
+    clientX: box.x + box.width / 2,
+    clientY: box.y + box.height / 2,
+    bubbles: true,
+    cancelable: true,
+  });
   await page.waitForTimeout(200);
 
   const after = await vp.evaluate((el: HTMLElement) => el.scrollTop);
@@ -534,7 +571,7 @@ test('session: 滚动条可拖拽', async ({ page }) => {
 // 漫游值,但渲染层永远盖不住 !important。所以断言看 getBoundingClientRect
 // 而不是 style.left,期望位置 = `❯` 那行的 viewport y。
 test('IME 锚定: 组字期间 cv 与 ta 渲染位置都钉在 cc prompt 行', async ({ page }) => {
-  test.skip(!hasClaude, 'TEST_HAS_CLAUDE not set');
+  requireClaude();
   const preset = process.env.TEST_LOCAL_PRESET ?? 'cchub';
   await createSessionByPreset(page, preset);
   await expect(page.locator('.tab')).toBeVisible({ timeout: 10000 });
@@ -740,7 +777,7 @@ test('IME 锚定: 组字期间 cv 与 ta 渲染位置都钉在 cc prompt 行', a
 });
 
 test('local session: 刷新后 wheel 仍被 xterm forward 给 cc（DEC mode 恢复）', async ({ page }) => {
-  test.skip(!hasClaude, 'TEST_HAS_CLAUDE not set');
+  requireClaude();
   const preset = process.env.TEST_LOCAL_PRESET ?? 'cchub';
   await createSessionByPreset(page, preset);
   await expect(page.locator('.tab')).toBeVisible({ timeout: 10000 });
@@ -774,7 +811,14 @@ test('local session: 刷新后 wheel 仍被 xterm forward 给 cc（DEC mode 恢�
   });
 
   const pre = await probeTerm();
-  expect(pre.bufferType, '刷新前 cc 应处于 alt-screen（?1049h）').toBe('alternate');
+  // This whole test asserts DEC-mode behaviour that only exists while cc is
+  // in the alt screen: modeSetup restoration and wheel→mouse forwarding are
+  // things cc enables only there. A login-less win32 cc renders its entire UI
+  // in the main buffer (?1049h never fires), so there is no mode to restore
+  // and no forwarding to survive a refresh — the assertions have nothing to
+  // bite on, and skipping is the honest response (strict mode turns this into
+  // a failure, per the no-signal discipline).
+  requireSignal(pre.bufferType === 'alternate', 'cc renders in the alt screen (?1049h)');
   expect(pre.wheelBytes, '刷新前 xterm 应把 wheel 转成 mouse escape 送给 cc').toMatch(/\x1b\[[<M]/);
 
   await page.goto('/?e2e=1');
@@ -791,8 +835,8 @@ test('local session: 刷新后 wheel 仍被 xterm forward 给 cc（DEC mode 恢�
 });
 
 test('remote session: 创建 → tab 出现 → 终端有输出', async ({ page }) => {
-  test.skip(!hasClaude, 'TEST_HAS_CLAUDE not set');
-  test.skip(!process.env.TEST_REMOTE_PRESET, 'TEST_REMOTE_PRESET not set');
+  requireClaude();
+  requireEnv('TEST_REMOTE_PRESET', 'needs an SSH preset to launch against');
   // The remote path (SSH → login bash → conda activate → claude) is the slowest
   // startup in the suite, and this is the last test to run across three engines.
   // The multi-session grid tests added real claude spawns, lengthening the run
@@ -807,7 +851,7 @@ test('remote session: 创建 → tab 出现 → 终端有输出', async ({ page 
 });
 
 test('recent launches: chip 单击直接再启动，Shift+click 预填 dialog', async ({ page }) => {
-  test.skip(!hasClaude, 'TEST_HAS_CLAUDE not set');
+  requireClaude();
   const preset = process.env.TEST_LOCAL_PRESET ?? 'cchub';
 
   // Arrange: create a session so recentLaunches gets a chip, then close it so
@@ -851,4 +895,6 @@ test('recent launches: chip 单击直接再启动，Shift+click 预填 dialog', 
   const selectedLabel = await presetSelect.locator('option:checked').first().textContent();
   expect(selectedLabel?.trim()).toBe(preset);
 });
+
+
 
