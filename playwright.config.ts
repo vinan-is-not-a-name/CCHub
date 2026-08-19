@@ -22,6 +22,42 @@ process.on('exit', () => { void ssh.close(); });
 const TEST_CWD = platform() === 'win32' ? 'D:\\temp' : '/tmp';
 mkdirSync(TEST_CWD, { recursive: true });
 
+// Test-session env inherits the host env wholesale (buildEnv in launch.ts
+// passes process.env through for local sessions), so any ANTHROPIC_* the dev
+// shell carries leaks into every test-spawned claude. With both
+// ANTHROPIC_AUTH_TOKEN and ANTHROPIC_API_KEY set, claude 2.1.223 renders a
+// tall "Both … set · auth may not work as expected" banner on startup that
+// pushes the prompt off the row the IME anchoring test expects (522px drift,
+// all three browsers). Strip the api key so test sessions carry only the
+// bearer token, matching the CI environment.
+delete process.env.ANTHROPIC_API_KEY;
+
+// claude's state dir for test-spawned sessions — a fresh, pre-seeded dir so
+// the dev machine's real ~/.claude.json (onboarding banners, login state,
+// trust dialogs) never leaks into test sessions. claude 2.1.223 renders a
+// tall "Welcome back!" banner when onboarding looks incomplete and a "Do you
+// trust this folder?" dialog without a trust record — both push the prompt
+// off the row the IME anchoring test expects (522px drift). Pre-seed the
+// same keys scripts/ciOnboard.cjs writes (version fields beyond any real
+// release; trust for the test cwd spellings) so startup is banner-free.
+const TEST_CLAUDE_DIR = join(testConfigDir, 'claude');
+mkdirSync(TEST_CLAUDE_DIR, { recursive: true });
+const TRUST = { hasTrustDialogAccepted: true };
+writeFileSync(join(TEST_CLAUDE_DIR, '.claude.json'), JSON.stringify({
+  hasCompletedOnboarding: true,
+  lastOnboardingVersion: '99.0.0',
+  lastReleaseNotesSeen: '99.0.0',
+  projects: {
+    '/tmp': TRUST,
+    'D:\\temp': TRUST,
+    'D:\\': TRUST,
+    'D:/temp': TRUST,
+    'D:/': TRUST,
+    'd:\\temp': TRUST,
+    'd:\\': TRUST,
+  },
+}, null, 2));
+
 // Seed the test config so both 'cchub' and 'cchub ssh' presets are
 // always present. The server consumes this on first boot.
 const now = Date.now();
@@ -70,6 +106,10 @@ const TEST_ENV = {
   TEST_SSH_HOST: ssh.host,
   TEST_SSH_PORT: String(ssh.port),
   TEST_SSH_SERVER_ID: sshServerId,
+  // Spawned claude sessions read their state (onboarding flags, projects
+  // dir) from here instead of the host's real ~/.claude — banners and
+  // session leftovers never affect test runs.
+  CLAUDE_CONFIG_DIR: TEST_CLAUDE_DIR,
 };
 for (const [k, v] of Object.entries(TEST_ENV)) process.env[k] = v;
 

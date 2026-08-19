@@ -5,7 +5,7 @@
 // - Spawns each `exec` request in the host's default shell (or node-pty for PTY).
 // - Picks an ephemeral port; we expose host/port/keypair via writeKeysAndConfig().
 
-import { mkdirSync, writeFileSync } from 'fs';
+import { mkdirSync, renameSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { spawn } from 'child_process';
 import * as net from 'net';
@@ -35,7 +35,13 @@ export async function startSshTestServer(opts: {
 
   mkdirSync(opts.keyDir, { recursive: true });
   const privateKeyPath = join(opts.keyDir, 'id_ed25519');
-  writeFileSync(privateKeyPath, userKeys.private, { encoding: 'utf8', mode: 0o600 });
+  // Atomic write (tmp + rename): every playwright config load regenerates this
+  // fixed-path key, and overlapping runs (a previous run's webServer still
+  // tearing down while the next loads) can otherwise read a half-written file —
+  // observed as "Cannot parse privateKey: Malformed OpenSSH private key".
+  const tmpKeyPath = `${privateKeyPath}.tmp`;
+  writeFileSync(tmpKeyPath, userKeys.private, { encoding: 'utf8', mode: 0o600 });
+  renameSync(tmpKeyPath, privateKeyPath);
 
   const server = new Server({ hostKeys: [hostKeys.private] }, (client) => {
     client.on('authentication', (ctx) => {
