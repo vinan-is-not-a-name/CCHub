@@ -16,10 +16,12 @@ export interface ProfileFormValues {
   name: string;
   baseUrl: string;
   authToken: string;
+  apiKey: string;
   model: string;
   subagentModel: string;
   smallFastModel: string;
   clearAuthToken: boolean;
+  clearApiKey: boolean;
 }
 
 export interface ServerFormValues {
@@ -60,8 +62,10 @@ export function buildProfileSaveMessage(form: ProfileFormValues, ctx: CardContex
     id: idFor(ctx),
     name: form.name || 'Profile',
     clearAuthToken: ctx.editing && form.clearAuthToken,
+    clearApiKey: ctx.editing && form.clearApiKey,
     baseUrl: form.baseUrl || undefined,
     authToken: form.authToken || undefined,
+    apiKey: form.apiKey || undefined,
     model: form.model || undefined,
     subagentModel: form.subagentModel || undefined,
     smallFastModel: form.smallFastModel || undefined,
@@ -74,6 +78,7 @@ export function buildProfileTestMessage(form: ProfileFormValues, ctx: CardContex
     name: form.name || 'Provider',
     baseUrl: form.baseUrl || undefined,
     authToken: form.authToken || undefined,
+    apiKey: form.apiKey || undefined,
     model: form.model || undefined,
   }};
 }

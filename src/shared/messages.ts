@@ -76,7 +76,7 @@ export type ClientMessage =
   | { type: 'config.profile.save'; profile: ProfileWriteRequest }
   | { type: 'config.profile.delete'; id: string }
   | { type: 'config.profile.copy'; id: string }
-  | { type: 'config.profile.test'; profile: Pick<ProfileWriteRequest, 'id' | 'name' | 'baseUrl' | 'authToken' | 'model'>; requestId: string }
+  | { type: 'config.profile.test'; profile: Pick<ProfileWriteRequest, 'id' | 'name' | 'baseUrl' | 'authToken' | 'apiKey' | 'model'>; requestId: string }
   | { type: 'config.server.save'; server: ServerWriteRequest }
   | { type: 'config.server.delete'; id: string }
   | { type: 'config.server.copy'; id: string }

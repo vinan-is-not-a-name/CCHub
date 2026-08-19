@@ -63,9 +63,11 @@ export function makeMessageRouter(deps: AppDeps, attach: AttachController, openL
       case 'image.fed':
         notifyImageFed(msg.id, msg.imageIndex);
         return;
-      case 'notify.hook':
-        notify?.fire(msg.id, hookKindToNotifyKind(msg.kind));
+      case 'notify.hook': {
+        const kind = hookKindToNotifyKind(msg.kind);
+        if (kind !== null) notify?.fire(msg.id, kind);
         return;
+      }
       case 'state':
         deps.store.setSessionState(msg.id, msg.state);
         return;
@@ -87,6 +89,14 @@ export function makeMessageRouter(deps: AppDeps, attach: AttachController, openL
   };
 }
 
-function hookKindToNotifyKind(kind: string): NotifyKind {
-  return kind === 'notification' ? 'approval' : 'ready';
+function hookKindToNotifyKind(kind: string): NotifyKind | null {
+  // cc's Notification hook fires for BOTH idle_prompt (cc waiting for input —
+  // normal idle, no user action needed) and permission_prompt (a real
+  // approval). The settings split them into distinct kinds; idle_prompt must
+  // NOT surface a notification (it would read "CC needs approval" with no
+  // approval menu on screen). 'notification' is kept for backward compat
+  // with sessions launched before the split.
+  if (kind === 'approval_request' || kind === 'notification') return 'approval';
+  if (kind === 'stop' || kind === 'stop_failure') return 'ready';
+  return null;
 }

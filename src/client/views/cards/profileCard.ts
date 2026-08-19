@@ -10,10 +10,12 @@ function readProfileForm(): ProfileFormValues {
     name: val('profile-name'),
     baseUrl: val('profile-base-url'),
     authToken: val('profile-auth-token'),
+    apiKey: val('profile-api-key'),
     model: val('profile-model'),
     subagentModel: val('profile-subagent-model'),
     smallFastModel: val('profile-small-model'),
     clearAuthToken: checked('profile-clear-token'),
+    clearApiKey: checked('profile-clear-api-key'),
   };
 }
 
@@ -43,20 +45,24 @@ export function mountProfileCard(deps: AppDeps) {
       setVal('profile-name', p.name);
       setVal('profile-base-url', p.env?.[PROFILE_FIELD_TO_ENV.baseUrl]);
       setVal('profile-auth-token', '');
+      setVal('profile-api-key', '');
       setVal('profile-model', p.env?.[PROFILE_FIELD_TO_ENV.model]);
       setVal('profile-subagent-model', p.env?.[PROFILE_FIELD_TO_ENV.subagentModel]);
       setVal('profile-small-model', p.env?.[PROFILE_FIELD_TO_ENV.smallFastModel]);
       setChecked('profile-clear-token', false);
+      setChecked('profile-clear-api-key', false);
     },
     resetForm: () => {
       setVal('profile-list', '');
       setVal('profile-name', '');
       setVal('profile-base-url', '');
       setVal('profile-auth-token', '');
+      setVal('profile-api-key', '');
       setVal('profile-model', '');
       setVal('profile-subagent-model', '');
       setVal('profile-small-model', '');
       setChecked('profile-clear-token', false);
+      setChecked('profile-clear-api-key', false);
       el<HTMLDivElement>('profile-test-result').hidden = true;
     },
     renderExtra: (profile, editing) => {
@@ -67,6 +73,14 @@ export function mountProfileCard(deps: AppDeps) {
           : 'Leave blank to keep saved token';
       } else {
         tokenInput.placeholder = '';
+      }
+      const apiKeyInput = el<HTMLInputElement>('profile-api-key');
+      if (editing && profile?.hasApiKey) {
+        apiKeyInput.placeholder = profile.apiKeyPreview
+          ? `Saved: ${profile.apiKeyPreview} (leave blank to keep)`
+          : 'Leave blank to keep saved key';
+      } else {
+        apiKeyInput.placeholder = '';
       }
     },
   });

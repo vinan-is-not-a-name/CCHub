@@ -9,13 +9,20 @@ import type {
   SshServerProfile,
 } from './domain.js';
 
-/** Profile shape sent to the client — secrets stripped. */
+/** Profile shape sent to the client — secrets stripped. Both token fields are
+ * masked: ANTHROPIC_AUTH_TOKEN (cc sends it as `Authorization: Bearer`) and
+ * ANTHROPIC_API_KEY (cc sends it as `x-api-key`). Some relays only accept one
+ * of the two headers — e.g. opencode zen's `/messages` route rejects Bearer
+ * with 401 "Missing API key" and only reads `x-api-key` — so both are stored
+ * independently and both get the same masking treatment. */
 export interface SafeAnthropicEnvProfile {
   id: string;
   name: string;
-  env: Omit<AnthropicEnv, 'ANTHROPIC_AUTH_TOKEN'>;
+  env: Omit<AnthropicEnv, 'ANTHROPIC_AUTH_TOKEN' | 'ANTHROPIC_API_KEY'>;
   hasAuthToken: boolean;
   authTokenPreview?: string;
+  hasApiKey: boolean;
+  apiKeyPreview?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -53,6 +60,8 @@ export interface ProfileWriteRequest {
   baseUrl?: string;
   authToken?: string;
   clearAuthToken?: boolean;
+  apiKey?: string;
+  clearApiKey?: boolean;
   model?: string;
   subagentModel?: string;
   smallFastModel?: string;

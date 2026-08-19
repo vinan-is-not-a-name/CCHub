@@ -73,6 +73,16 @@ export class ManagedSession extends EventEmitter {
    * frozen at 'processing' forever. Reset on every 'processing' entry. */
   private processingStartedAt = Date.now();
   private idleTimer: NodeJS.Timeout | null = null;
+  /** Live subagent count, driven by the SubagentStart / SubagentStop hooks.
+   * cc fires Stop when the MAIN turn ends, which can happen while a subagent
+   * is still mid-flight in the background — a Stop with live subagents must
+   * not flip the session to idle (the "main turn done, subagent still
+   * working" case the user reported). */
+  private subagentCount = 0;
+  /** A Stop arrived while subagents were live. Deferred: the session stays
+   * 'processing' until the last subagent_stop clears it. Cleared by any new
+   * user_prompt_submit (a new turn supersedes the stale stop). */
+  private pendingStop = false;
   private channel: ConnectorChannel;
   /** Absolute paths of every image fed into this session, in feed order. The
    * Nth entry (1-based) is what the Nth `[Image #...]` chip the terminal ever
@@ -203,17 +213,29 @@ export class ManagedSession extends EventEmitter {
    * rendering). `notification` still forwards to the desktop-notification
    * pipeline below. */
   emitHook(kind: string): void {
+    const stopDeferred = this.pendingStop;
     this.applyHookState(kind);
-    // user_prompt_submit and tool_active are state-only signals. They must NOT
-    // reach the notification pipeline or the client would fire a "CC ready"
-    // ping on every prompt and every tool call (hookKindToNotifyKind maps
-    // anything that isn't 'notification' to 'ready').
-    if (kind !== 'user_prompt_submit' && kind !== 'tool_active') this.emit('hook', kind);
+    // State-only signals must NOT reach the notification pipeline or the
+    // client would fire a "CC ready" ping on every prompt, every tool call,
+    // and every subagent start/stop (anything not 'notification' maps to
+    // 'ready'). user_prompt_submit / tool_active / subagent_* only drive the
+    // state machine.
+    const stateOnly = kind === 'user_prompt_submit' || kind === 'tool_active' || kind === 'subagent_start' || kind === 'subagent_stop';
+    // Stop while subagents are live: the turn is NOT actually done — hold
+    // the "CC ready" notification until the last subagent finishes. Emitting
+    // it here would contradict the state (still 'processing'). A repeated
+    // stop while still deferred is suppressed too (no duplicate notification).
+    if (!stateOnly && (kind === 'stop' || kind === 'stop_failure') && this.pendingStop) return;
+    if (!stateOnly) this.emit('hook', kind);
+    // subagent_stop that clears a deferred stop = the last subagent finished:
+    // release the held notification now, with the stop kind.
+    if (kind === 'subagent_stop' && stopDeferred && !this.pendingStop) this.emit('hook', 'stop');
   }
 
   private applyHookState(kind: string): void {
     switch (kind) {
       case 'user_prompt_submit':
+        this.pendingStop = false;
         this.setState('processing', 'hook: UserPromptSubmit (turn start)');
         // Arm the idle safety-net timer so a turn that produces no further
         // screen output still has the hard-timeout backstop (the Stop hook is
@@ -232,8 +254,31 @@ export class ManagedSession extends EventEmitter {
         this.setState('processing', 'hook: tool-use heartbeat');
         this.armIdleCheck();
         return;
+      case 'subagent_start':
+        this.subagentCount += 1;
+        // A subagent mid-flight is live work even while the main turn sits
+        // idle between its own tool calls — hold 'processing' until every
+        // subagent_stop lands.
+        this.setState('processing', 'hook: SubagentStart');
+        this.armIdleCheck();
+        return;
+      case 'subagent_stop':
+        if (this.subagentCount > 0) this.subagentCount -= 1;
+        if (this.subagentCount === 0 && this.pendingStop) {
+          this.pendingStop = false;
+          if (this.idleTimer) { clearTimeout(this.idleTimer); this.idleTimer = null; }
+          this.setState('idle', 'hook: subagent_stop (last subagent done, turn already stopped)');
+        }
+        return;
       case 'stop':
       case 'stop_failure':
+        if (this.subagentCount > 0) {
+          // Main turn ended while a subagent is still running. Do NOT flip to
+          // idle — the session is only "done" once the subagent stops. Hold
+          // 'processing' and finish on the last subagent_stop.
+          this.pendingStop = true;
+          return;
+        }
         if (this.idleTimer) { clearTimeout(this.idleTimer); this.idleTimer = null; }
         this.setState('idle', `hook: ${kind} (turn end)`);
         return;
@@ -389,6 +434,14 @@ export class ManagedSession extends EventEmitter {
 
   private tryFlipIdle(): void {
     if (!this.stateMachine.shouldSetIdle(this.state)) return;
+    // Subagent gate: while a subagent is live the session has background work
+    // regardless of what the screen says — cc's per-turn summary can appear
+    // while a subagent is still mid-flight, and the hard-timeout must not
+    // flip a genuinely busy session. Re-arm until the last subagent_stop.
+    if (this.subagentCount > 0) {
+      this.armIdleCheck();
+      return;
+    }
     const screen = this.readScreenText();
     const now = Date.now();
     const tail = JSON.stringify(screen.slice(-240));

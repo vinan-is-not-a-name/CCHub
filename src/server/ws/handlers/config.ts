@@ -105,6 +105,7 @@ function saveProfile(store: ConfigService, p: ProfileWriteRequest): SafeConfigSn
     id: p.id,
     name: p.name,
     clearAuthToken: p.clearAuthToken,
+    clearApiKey: p.clearApiKey,
     env: profileFieldsToEnv(p),
   });
 }

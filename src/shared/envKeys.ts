@@ -7,6 +7,7 @@
 export const PROFILE_FIELD_TO_ENV = {
   baseUrl: 'ANTHROPIC_BASE_URL',
   authToken: 'ANTHROPIC_AUTH_TOKEN',
+  apiKey: 'ANTHROPIC_API_KEY',
   model: 'ANTHROPIC_MODEL',
   subagentModel: 'CLAUDE_CODE_SUBAGENT_MODEL',
   smallFastModel: 'ANTHROPIC_SMALL_FAST_MODEL',

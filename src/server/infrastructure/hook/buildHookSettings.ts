@@ -31,6 +31,19 @@ export interface HookSettings {
  *     like UserPromptSubmit, are state-only (must NOT reach the notification
  *     pipeline, or every tool call would fire a "ready" toast).
  *   - Notification (idle_prompt, permission_prompt): CC is waiting for user.
+ *   - SubagentStart / SubagentStop: a subagent started / finished. Together
+ *     they let the server count live subagents: cc fires Stop when the MAIN
+ *     turn ends, which can happen while a subagent is still mid-flight — a
+ *     Stop while subagents are live must not flip the session to idle.
+ *
+ * Version support (measured against the changelog + the 2.0.42 bundle):
+ * SubagentStop exists since 1.0.41, SubagentStart since 2.0.43. Both are
+ * injected unconditionally — an older cc treats the unknown event name as an
+ * ignorable settings key (verified: 2.0.42 loads a settings file containing
+ * SubagentStart without erroring, behaviour identical to one without it), so
+ * old clients degrade silently (no subagent counting) instead of breaking.
+ * The server-side counter guards `count > 0` before decrementing, so a
+ * partial-support cc (Stop only) is also a no-op.
  *   - Stop: CC finished responding normally.
  *   - StopFailure: CC stopped due to API error / rate limit.
  *
@@ -65,9 +78,23 @@ export function buildHookSettings(input: HookSettingsInput): HookSettings {
         matcher: '',
         hooks: [{ type: 'command', command: buildCurlCmd(url, token, os, 'tool_active') }],
       }],
+      // Split into two Notification entries: permission_prompt is a real
+      // approval (→ approval notification), idle_prompt is cc simply waiting
+      // for input (→ no notification — the client ignores this kind).
       Notification: [{
-        matcher: 'idle_prompt,permission_prompt',
-        hooks: [{ type: 'command', command: buildCurlCmd(url, token, os, 'notification') }],
+        matcher: 'permission_prompt',
+        hooks: [{ type: 'command', command: buildCurlCmd(url, token, os, 'approval_request') }],
+      }, {
+        matcher: 'idle_prompt',
+        hooks: [{ type: 'command', command: buildCurlCmd(url, token, os, 'idle_prompt') }],
+      }],
+      SubagentStart: [{
+        matcher: '',
+        hooks: [{ type: 'command', command: buildCurlCmd(url, token, os, 'subagent_start') }],
+      }],
+      SubagentStop: [{
+        matcher: '',
+        hooks: [{ type: 'command', command: buildCurlCmd(url, token, os, 'subagent_stop') }],
       }],
       Stop: [{
         matcher: '',

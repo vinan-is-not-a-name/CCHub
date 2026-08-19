@@ -6,13 +6,16 @@ export interface ProfileRulesInput extends Partial<AnthropicEnvProfile> {
   id?: string;
   name: string;
   clearAuthToken?: boolean;
+  clearApiKey?: boolean;
 }
 
 /**
  * Build a normalized AnthropicEnvProfile from a save request, preserving the
- * existing token unless `clearAuthToken` is set or a new value is supplied.
- * Pure — no IO, no randomUUID()-based replay risk (a fresh id is generated
- * only when neither `existing` nor `input.id` provides one).
+ * existing tokens unless their `clear*` flag is set or a new value is
+ * supplied. Both secrets get the same treatment: ANTHROPIC_AUTH_TOKEN (Bearer)
+ * and ANTHROPIC_API_KEY (x-api-key) — relays may accept only one of the two
+ * header styles. Pure — no IO, no randomUUID()-based replay risk (a fresh id
+ * is generated only when neither `existing` nor `input.id` provides one).
  */
 export function buildProfile(
   input: ProfileRulesInput,
@@ -22,6 +25,9 @@ export function buildProfile(
   const env = sanitizeAnthropicEnv(input.env ?? {});
   if (existing && !input.clearAuthToken && !env.ANTHROPIC_AUTH_TOKEN) {
     env.ANTHROPIC_AUTH_TOKEN = existing.env.ANTHROPIC_AUTH_TOKEN;
+  }
+  if (existing && !input.clearApiKey && !env.ANTHROPIC_API_KEY) {
+    env.ANTHROPIC_API_KEY = existing.env.ANTHROPIC_API_KEY;
   }
   return {
     id: existing?.id ?? input.id ?? randomUUID(),

@@ -335,6 +335,39 @@ test.describe('ManagedSession — hook-driven state', () => {
     // The heartbeat is state-only; only stop is forwarded as a notification.
     expect(hooks).toEqual(['stop']);
   });
+
+  test('subagent hooks do NOT reach the notification pipeline (would false-fire "ready")', () => {
+    const { session } = makeSession();
+    const hooks: string[] = [];
+    session.on('hook', (k) => hooks.push(k));
+    session.emitHook('user_prompt_submit');
+    session.emitHook('subagent_start');
+    session.emitHook('subagent_stop');
+    session.emitHook('stop');
+    // subagent_* drive the idle gate but are state-only, like tool_active.
+    expect(hooks).toEqual(['stop']);
+  });
+
+  test('Stop while a subagent is live defers the "CC ready" notification until the last subagent_stop', () => {
+    // Multiple subagents: the main turn's Stop arrives while subagents are
+    // still running. Emitting "CC ready" then would contradict the state
+    // (still 'processing'). The notification must be held and released once
+    // (and only once) when the last subagent finishes.
+    const { session } = makeSession();
+    const hooks: string[] = [];
+    session.on('hook', (k) => hooks.push(k));
+    session.emitHook('user_prompt_submit');
+    session.emitHook('subagent_start');
+    session.emitHook('subagent_start');
+    session.emitHook('stop');
+    expect(hooks).toEqual([]); // deferred — subagents still live
+
+    session.emitHook('subagent_stop');
+    expect(hooks).toEqual([]); // one still live, still deferred
+
+    session.emitHook('subagent_stop');
+    expect(hooks).toEqual(['stop']); // last one done → release exactly once
+  });
 });
 
 test.describe('ManagedSession — state transitions', () => {
@@ -483,6 +516,83 @@ test.describe('ManagedSession — state transitions', () => {
   // `hardIdleTimeoutMs` with no busy signal AND no positive idle marker,
   // the flip is allowed anyway. This exists so a cc format change or a
   // wedged session can't strand the state at 'processing' forever.
+  test('a live subagent keeps the session in processing even after Stop (the reported bug)', async () => {
+    // cc fires Stop when the MAIN turn ends, which can happen while a
+    // subagent is still mid-flight. A naive Stop handler flips to idle —
+    // exactly the "main session done, subagent still working" bug. The
+    // session must hold 'processing' until the subagent actually stops.
+    const { session } = makeSession();
+    const states: string[] = [];
+    session.emitHook('user_prompt_submit');
+    session.on('state', (s) => states.push(s));
+
+    session.emitHook('subagent_start');
+    session.emitHook('stop');
+
+    expect(session.getInfo().state).toBe('processing');
+    expect(states).not.toContain('idle');
+
+    session.emitHook('subagent_stop');
+    expect(session.getInfo().state).toBe('idle');
+    expect(states).toContain('idle');
+  });
+
+  test('multiple subagents: idle only after the LAST subagent_stop', async () => {
+    const { session } = makeSession();
+    const states: string[] = [];
+    session.emitHook('user_prompt_submit');
+    session.on('state', (s) => states.push(s));
+
+    session.emitHook('subagent_start');
+    session.emitHook('subagent_start');
+    session.emitHook('stop');
+    expect(session.getInfo().state).toBe('processing'); // stop deferred
+
+    session.emitHook('subagent_stop');
+    expect(session.getInfo().state).toBe('processing'); // one still live
+
+    session.emitHook('subagent_stop');
+    expect(session.getInfo().state).toBe('idle');
+  });
+
+  test('a new user_prompt_submit clears a deferred stop (stale stop superseded)', async () => {
+    const { session } = makeSession();
+    session.emitHook('user_prompt_submit');
+    session.emitHook('subagent_start');
+    session.emitHook('stop');          // deferred — subagent live
+    session.emitHook('subagent_stop'); // count → 0, pendingStop clears → idle
+    expect(session.getInfo().state).toBe('idle');
+
+    // Next turn starts; a stop from the PREVIOUS turn must not leak in.
+    session.emitHook('user_prompt_submit');
+    expect(session.getInfo().state).toBe('processing');
+    session.emitHook('stop');
+    expect(session.getInfo().state).toBe('idle');
+  });
+
+  test('subagent_start alone holds processing through the summary marker (no Stop needed)', async () => {
+    // Screen-side path: no Stop hook arrived yet, but the per-turn summary
+    // line is on screen. With a live subagent the idle-timer must re-arm
+    // instead of flipping — summary markers can appear mid-subagent.
+    const { session, connector } = makeSession();
+    const states: string[] = [];
+    session.emitHook('user_prompt_submit');
+    session.on('state', (s) => states.push(s));
+    session.emitHook('subagent_start');
+    connector.channels[0].emit('data', '✻ Worked for 10s\r\n');
+    await new Promise((r) => setTimeout(r, TINY.idleAfterMs + 80));
+
+    expect(states).not.toContain('idle');
+    expect(session.getInfo().state).toBe('processing');
+
+    session.emitHook('subagent_stop');
+    // No pendingStop — the screen-side flip is what has to fire now.
+    connector.channels[0].emit('data', '✻ Worked for 10s\r\n');
+    await new Promise((r) => setTimeout(r, TINY.idleAfterMs + 80));
+    expect(states).toContain('idle');
+    connector.channels[0].emit('exit', 0); // cleanup
+  });
+
   test('flips to idle via hard timeout when neither busy nor idle marker ever appears', async () => {
     const { session, connector } = makeSession();
     const states: string[] = [];

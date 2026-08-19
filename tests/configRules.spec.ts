@@ -34,6 +34,40 @@ test.describe('buildProfile — auth-token three-state', () => {
     const out = buildProfile({ id: 'p1', name: 'n', env: {}, clearAuthToken: true }, existing, now);
     expect(out.env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
   });
+});
+
+test.describe('buildProfile — api-key three-state (x-api-key relays)', () => {
+  const existing: AnthropicEnvProfile = {
+    id: 'p1', name: 'old', env: { ANTHROPIC_API_KEY: 'old-key', ANTHROPIC_MODEL: 'm' },
+    createdAt: 1, updatedAt: 2,
+  };
+
+  test('a new api key in env overrides the existing one', () => {
+    const out = buildProfile({ id: 'p1', name: 'n', env: { ANTHROPIC_API_KEY: 'new-key' } }, existing, now);
+    expect(out.env.ANTHROPIC_API_KEY).toBe('new-key');
+  });
+
+  test('absent new api key preserves the existing key (the no-clobber case)', () => {
+    const out = buildProfile({ id: 'p1', name: 'n', env: { ANTHROPIC_MODEL: 'm2' } }, existing, now);
+    expect(out.env.ANTHROPIC_API_KEY).toBe('old-key');
+    expect(out.env.ANTHROPIC_MODEL).toBe('m2');
+  });
+
+  test('clearApiKey drops the existing key even when none is supplied', () => {
+    const out = buildProfile({ id: 'p1', name: 'n', env: {}, clearApiKey: true }, existing, now);
+    expect(out.env.ANTHROPIC_API_KEY).toBeUndefined();
+  });
+
+  test('auth token and api key are independent — clearing one keeps the other', () => {
+    const both: AnthropicEnvProfile = {
+      id: 'p1', name: 'old',
+      env: { ANTHROPIC_AUTH_TOKEN: 'bearer', ANTHROPIC_API_KEY: 'xkey' },
+      createdAt: 1, updatedAt: 2,
+    };
+    const out = buildProfile({ id: 'p1', name: 'n', env: {}, clearAuthToken: true }, both, now);
+    expect(out.env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+    expect(out.env.ANTHROPIC_API_KEY).toBe('xkey');
+  });
 
   test('keeps existing id and createdAt; bumps updatedAt', () => {
     const out = buildProfile({ id: 'ignored', name: 'n', env: {} }, existing, now);
