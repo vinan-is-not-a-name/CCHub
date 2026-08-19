@@ -31,20 +31,23 @@ export function handleLaunchMessage(ctx: WsCtx, msg: LaunchMessage): void {
       const saved = msg.profile.id ? ctx.store.listProfiles().find(p => p.id === msg.profile.id) : undefined;
       const baseUrl = msg.profile.baseUrl ?? saved?.env[PROFILE_FIELD_TO_ENV.baseUrl];
       const authToken = msg.profile.authToken ?? saved?.env[PROFILE_FIELD_TO_ENV.authToken];
+      const apiKey = msg.profile.apiKey ?? saved?.env[PROFILE_FIELD_TO_ENV.apiKey];
       const model = msg.profile.model ?? saved?.env[PROFILE_FIELD_TO_ENV.model];
       if (!baseUrl) {
         ctx.send({ type: 'config.profile.test.result', requestId: msg.requestId, ok: false, message: 'Base URL is required' });
         return;
       }
-      if (!authToken) {
-        ctx.send({ type: 'config.profile.test.result', requestId: msg.requestId, ok: false, message: 'Auth token is required for test' });
+      // A relay may accept only one of the two header styles (Bearer vs
+      // x-api-key) — the probe picks whichever secret is present.
+      if (!authToken && !apiKey) {
+        ctx.send({ type: 'config.profile.test.result', requestId: msg.requestId, ok: false, message: 'Auth token or API key is required for test' });
         return;
       }
       if (!model) {
         ctx.send({ type: 'config.profile.test.result', requestId: msg.requestId, ok: false, message: 'Model is required for test' });
         return;
       }
-      probeProfileConnection({ baseUrl, authToken, model })
+      probeProfileConnection({ baseUrl, authToken, apiKey, model })
         .then(() => ctx.send({ type: 'config.profile.test.result', requestId: msg.requestId, ok: true, message: 'Connection ok' }))
         .catch((error) => ctx.send({ type: 'config.profile.test.result', requestId: msg.requestId, ok: false, message: error instanceof Error ? error.message : String(error) }));
       return;

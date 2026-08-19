@@ -27,13 +27,15 @@ export function toSnapshot(data: StoredConfig): SafeConfigSnapshot {
 }
 
 export function maskProfile(profile: AnthropicEnvProfile): SafeAnthropicEnvProfile {
-  const { ANTHROPIC_AUTH_TOKEN, ...env } = profile.env;
+  const { ANTHROPIC_AUTH_TOKEN, ANTHROPIC_API_KEY, ...env } = profile.env;
   return {
     id: profile.id,
     name: profile.name,
     env,
     hasAuthToken: Boolean(ANTHROPIC_AUTH_TOKEN),
     authTokenPreview: previewSecret(ANTHROPIC_AUTH_TOKEN),
+    hasApiKey: Boolean(ANTHROPIC_API_KEY),
+    apiKeyPreview: previewSecret(ANTHROPIC_API_KEY),
     createdAt: profile.createdAt,
     updatedAt: profile.updatedAt,
   };

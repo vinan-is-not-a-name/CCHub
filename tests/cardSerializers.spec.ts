@@ -15,10 +15,12 @@ const profileForm: ProfileFormValues = {
   name: 'TestProfile',
   baseUrl: 'https://api.test',
   authToken: 'token123',
+  apiKey: '',
   model: 'claude-4',
   subagentModel: 'opus-3',
   smallFastModel: 'haiku-3',
   clearAuthToken: false,
+  clearApiKey: false,
 };
 
 const serverLocalForm: ServerFormValues = {
@@ -73,6 +75,7 @@ test.describe('buildProfileSaveMessage', () => {
         id: undefined,
         name: 'Profile',
         clearAuthToken: false,
+        clearApiKey: false,
         baseUrl: 'https://api.test',
         authToken: 'token123',
         model: 'claude-4',
