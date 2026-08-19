@@ -189,6 +189,22 @@ test.describe('messageRouter — hook notifications', () => {
       { id: 'a', kind: 'ready' },
     ]);
   });
+
+  test('approval_request fires approval; idle_prompt fires nothing (no false "needs approval")', () => {
+    // cc's Notification hook fires for BOTH permission_prompt (real approval)
+    // and idle_prompt (cc waiting for input). idle_prompt must not surface a
+    // notification — there is no approval menu on screen to act on.
+    const fired: Array<{ id: string; kind: string }> = [];
+    const route = makeMessageRouter(
+      { conn: { send: () => {} }, store: makeStore() } as unknown as AppDeps,
+      spyAttach().ctrl,
+      () => {},
+      { fire: (id, kind) => fired.push({ id, kind }) },
+    );
+    route({ type: 'notify.hook', id: 'a', kind: 'approval_request' } as ServerMessage);
+    route({ type: 'notify.hook', id: 'a', kind: 'idle_prompt' } as ServerMessage);
+    expect(fired).toEqual([{ id: 'a', kind: 'approval' }]);
+  });
 });
 
 test.describe('messageRouter — error', () => {

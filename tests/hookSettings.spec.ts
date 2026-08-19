@@ -4,11 +4,19 @@ import { buildHookSettings, buildCurlCmd } from '../src/server/infrastructure/ho
 test.describe('buildHookSettings', () => {
   const base = { sessionId: 'abc-123', hookPort: 9876, token: 'tok_secret' };
 
-  test('produces UserPromptSubmit, PreToolUse, PostToolUse, Notification, Stop, and StopFailure hook entries', () => {
+  test('produces all hook entries including the subagent pair', () => {
     const s = buildHookSettings(base);
     expect(Object.keys(s.hooks).sort()).toEqual(
-      ['Notification', 'PostToolUse', 'PreToolUse', 'Stop', 'StopFailure', 'UserPromptSubmit'],
+      ['Notification', 'PostToolUse', 'PreToolUse', 'Stop', 'StopFailure', 'SubagentStart', 'SubagentStop', 'UserPromptSubmit'],
     );
+  });
+
+  test('SubagentStart/SubagentStop carry the subagent kinds (the idle-gate signals)', () => {
+    const s = buildHookSettings(base);
+    expect(s.hooks.SubagentStart[0].matcher).toBe('');
+    expect(s.hooks.SubagentStart[0].hooks[0].command).toContain('?kind=subagent_start');
+    expect(s.hooks.SubagentStop[0].matcher).toBe('');
+    expect(s.hooks.SubagentStop[0].hooks[0].command).toContain('?kind=subagent_stop');
   });
 
   test('PreToolUse and PostToolUse are match-all heartbeats carrying kind=tool_active', () => {
@@ -25,9 +33,14 @@ test.describe('buildHookSettings', () => {
     expect(s.hooks.UserPromptSubmit[0].hooks[0].command).toContain('?kind=user_prompt_submit');
   });
 
-  test('Notification matcher covers idle_prompt and permission_prompt', () => {
+  test('Notification is split: permission_prompt → approval_request, idle_prompt → idle_prompt', () => {
+    // cc's Notification hook fires for both prompt kinds; the settings split
+    // them so only a REAL approval surfaces a notification (idle_prompt is cc
+    // waiting for input — no approval menu exists to act on).
     const s = buildHookSettings(base);
-    expect(s.hooks.Notification[0].matcher).toBe('idle_prompt,permission_prompt');
+    expect(s.hooks.Notification.map((e) => e.matcher)).toEqual(['permission_prompt', 'idle_prompt']);
+    expect(s.hooks.Notification[0].hooks[0].command).toContain('?kind=approval_request');
+    expect(s.hooks.Notification[1].hooks[0].command).toContain('?kind=idle_prompt');
   });
 
   test('Stop and StopFailure matchers are empty (match all)', () => {
@@ -50,7 +63,7 @@ test.describe('buildHookSettings', () => {
 
   test('command carries the event kind as a query param', () => {
     const s = buildHookSettings(base);
-    expect(s.hooks.Notification[0].hooks[0].command).toContain('?kind=notification');
+    expect(s.hooks.Notification[0].hooks[0].command).toContain('?kind=approval_request');
     expect(s.hooks.Stop[0].hooks[0].command).toContain('?kind=stop');
     expect(s.hooks.StopFailure[0].hooks[0].command).toContain('?kind=stop_failure');
   });
