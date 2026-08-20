@@ -334,6 +334,15 @@ body {
   font-size: 10.5px;
   color: var(--muted);
 }
+
+/* In-flight probe marker shown next to the update time while old data stays
+ * on screen — the auto-refresh cadence is long (60s) and a full "loading"
+ * swap on every tick would flicker; stale rows + this label read calmer. */
+.balance-monitor .bal-refreshing {
+  font-size: 10.5px;
+  color: var(--muted);
+  font-style: italic;
+}
 .balance-monitor .bal-refresh {
   appearance: none;
   border: 1px solid var(--line, #d1d5db);

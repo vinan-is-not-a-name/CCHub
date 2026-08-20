@@ -139,6 +139,16 @@ export function mountBalanceMonitor(deps: AppDeps): void {
       head.appendChild(updated);
     }
 
+    // Refreshing while old data is on screen: keep showing the stale rows
+    // (better than a blank "loading" flicker every auto-refresh) and mark the
+    // in-flight probe instead.
+    if (sites !== null && inFlightRequestId !== null) {
+      const refreshing = document.createElement('span');
+      refreshing.className = 'bal-refreshing';
+      refreshing.textContent = t('balance.refreshing');
+      head.appendChild(refreshing);
+    }
+
     const refreshBtn = document.createElement('button');
     refreshBtn.type = 'button';
     refreshBtn.className = 'bal-refresh';
@@ -147,7 +157,8 @@ export function mountBalanceMonitor(deps: AppDeps): void {
     head.appendChild(refreshBtn);
     dropdown.appendChild(head);
 
-    if (sites === null || inFlightRequestId !== null) {
+    // No data at all (first probe in flight): nothing to show yet — loading.
+    if (sites === null) {
       const loading = document.createElement('div');
       loading.className = 'bal-empty';
       loading.textContent = t('balance.loading');
