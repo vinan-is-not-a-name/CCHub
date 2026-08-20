@@ -47,6 +47,7 @@ const en: Dict = {
   'balance.preset': 'Preset',
   'balance.empty': 'No profiles with a Base URL + API Key',
   'balance.loading': 'Probing…',
+  'balance.refreshing': 'refreshing…',
   'balance.unsupported': 'Official API — no balance endpoint',
   'balance.error': 'Failed: {error}',
 
@@ -309,6 +310,7 @@ const zh: Dict = {
   'balance.preset': '预设',
   'balance.empty': '没有配置带 Base URL 和 API Key 的预设',
   'balance.loading': '查询中…',
+  'balance.refreshing': '刷新中…',
   'balance.unsupported': '官方 API,无余额接口',
   'balance.error': '查询失败:{error}',
 
