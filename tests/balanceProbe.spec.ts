@@ -11,6 +11,8 @@ import {
   groupBalanceSites,
   previewKey,
   sortBalanceSites,
+  probeAllSites,
+  BalanceSiteLast,
 } from '../src/server/application/balance.js';
 import type { AnthropicEnvProfile, BalanceSiteView } from '../src/shared/protocol.js';
 
@@ -131,6 +133,57 @@ test.describe('previewKey', () => {
 
   test('short tokens are fully masked', () => {
     expect(previewKey('sk-1234')).toBe('********');
+  });
+});
+
+test.describe('probeAllSites — stale cache per key', () => {
+  const groups = [
+    { baseUrl: 'https://api.ikuncode.cc', authToken: 'sk-AAAAAAAA', presetNames: ['A'] },
+    { baseUrl: 'https://api.ikuncode.cc', authToken: 'sk-BBBBBBBB', presetNames: ['B'] },
+  ];
+  const prevCache = new Map<string, BalanceSiteLast>([
+    ['https://api.ikuncode.cc|sk-AAAAAAAA', { remain: 55, limit: 100, used: 45, currency: 'USD', at: 1000 }],
+    ['https://api.ikuncode.cc|sk-BBBBBBBB', { remain: 80, limit: 100, used: 20, currency: 'USD', at: 1500 }],
+  ]);
+
+  test('a failing key keeps ITS OWN stale balance, not the other key on the same site', async () => {
+    const query = async (p: { authToken: string }) => {
+      if (p.authToken === 'sk-AAAAAAAA') throw new Error('boom');
+      return { remain: 80, limit: 100, used: 20, currency: 'USD' };
+    };
+    const sites = await probeAllSites(groups, 4, prevCache, query as never);
+    const a = sites.find((s) => s.keyPreview === 'sk-A...AAAA')!;
+    const b = sites.find((s) => s.keyPreview === 'sk-B...BBBB')!;
+    // A failed → stale with A's own prior balance (55), not B's (80).
+    expect(a.remain).toBe(55);
+    expect(a.stale).toBe(true);
+    expect(a.error).toBe('boom');
+    expect(a.at).toBe(1000);
+    // B succeeded → fresh 80, no stale flags.
+    expect(b.remain).toBe(80);
+    expect(b.stale).toBeUndefined();
+    expect(b.at).toBeGreaterThan(1500);
+  });
+
+  test('sites that never succeeded stay failed (no cross-contamination from another key)', async () => {
+    const query = async () => { throw new Error('down'); };
+    const sites = await probeAllSites(groups, 4, prevCache, query as never);
+    for (const site of sites) {
+      expect(site.remain).toBe(null);
+      expect(site.stale).toBeUndefined(); // no prior success yet → not stale
+      expect(site.error).toContain('down');
+    }
+  });
+
+  test('a key that succeeds UPDATES its own cache entry', async () => {
+    const query = async (p: { authToken: string }) => {
+      if (p.authToken === 'sk-AAAAAAAA') throw new Error('hmm');
+      return { remain: 90, limit: 100, used: 10, currency: 'USD' };
+    };
+    const cache = new Map(prevCache);
+    await probeAllSites(groups, 4, cache, query as never);
+    expect(cache.get('https://api.ikuncode.cc|sk-BBBBBBBB')!.remain).toBe(90);
+    expect(cache.get('https://api.ikuncode.cc|sk-AAAAAAAA')!.remain).toBe(55); // unchanged
   });
 });
 

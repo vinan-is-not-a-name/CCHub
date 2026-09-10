@@ -78,6 +78,8 @@ export function mountBalanceMonitor(deps: AppDeps): void {
     }
     if (msg.type !== 'balance.result' || msg.requestId !== inFlightRequestId) return;
     inFlightRequestId = null;
+    // Pass the previous results so a site that failed THIS round keeps its
+    // last-known balance, marked stale (see BalanceSiteView.stale).
     sites = msg.sites;
     lastProbed = Date.now();
     updatePill();
@@ -211,11 +213,33 @@ function makeCell(text: string, cls: string, extraCls?: string): HTMLElement {
   return cell;
 }
 
-/** Success → "$50.00" / "¥18.46" per currency; unsupported / failed → '—'
- * with a hover-explained reason so the row stays scannable. */
+/** Success → "$50.00" / "¥18.46" per currency; failed → '—' with the reason
+ * in a hover-explained `title`. Stale rows (failed this round, showing the
+ * previous balance) append the age of the stale value so the user knows it's
+ * not fresh, e.g. "$50.00 (5 min ago)". */
 function balanceText(site: BalanceSiteView): string {
-  if (site.remain !== null) return fmtMoney(site.remain, site.currency);
+  if (site.remain !== null) {
+    const text = fmtMoney(site.remain, site.currency);
+    if (site.stale) {
+      const ago = relativeAge(site.at);
+      return `${text} (${ago})`;
+    }
+    return text;
+  }
   return site.error === 'unsupported' ? t('balance.unsupported') : t('balance.error').replace('{error}', site.error ?? '?');
+}
+
+/** Human-readable age from an epoch ms, e.g. "5 min ago", "1h ago", "2d ago",
+ * "just now". Matches the format the topbar dropdown uses. */
+function relativeAge(at: number): string {
+  const diff = Date.now() - at;
+  if (diff < 60_000) return t('balance.justNow');
+  const min = Math.floor(diff / 60_000);
+  if (min < 60) return t('balance.minAgo').replace('{n}', String(min));
+  const h = Math.floor(min / 60);
+  if (h < 24) return t('balance.hourAgo').replace('{n}', String(h));
+  const d = Math.floor(h / 24);
+  return t('balance.dayAgo').replace('{n}', String(d));
 }
 
 /** Colour the balance cell by health: red when the site failed or reported

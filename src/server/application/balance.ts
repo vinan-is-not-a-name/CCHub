@@ -53,13 +53,38 @@ export const BALANCE_CONCURRENCY = 4;
 
 const EMPTY_RAW: BalanceRaw = { limit: null, used: null, remain: null, currency: 'USD' };
 
+/** Last-known balance for one distinct site. Keyed by the (normalized
+ * baseUrl, authToken) pair — the SAME site probed with DIFFERENT keys is two
+ * different groups and must not share a stale value (that was the
+ * "same host, different key pollution" bug: a failing key A showed key B's
+ * balance because the cache was keyed by baseUrl alone). */
+export interface BalanceSiteLast {
+  remain: number | null;
+  limit: number | null;
+  used: number | null;
+  currency: string;
+  at: number;
+}
+
+export type BalanceLastCache = Map<string, BalanceSiteLast>;
+
+const groupKey = (g: BalanceSiteGroup) => normalizeBaseUrl(g.baseUrl) + '|' + g.authToken;
+
 /** Probe every distinct site, bounded concurrency. A failing site becomes a
  * row with `error` rather than taking the whole response down — one dead
  * relay must not blank the panel. Official Anthropic endpoints are skipped
- * with error 'unsupported' (they have no balance API). */
+ * with error 'unsupported' (they have no balance API).
+ *
+ * `prev` is the previous successful results keyed by baseUrl — when a site
+ * fails this round, its row keeps the old `remain` and is marked `stale`
+ * (plus the failure `error`) instead of showing a blank "failed" cell, so
+ * an intermittent relay never blanks a known balance. Sites that newly
+ * appear (no prev entry) simply fail as before. */
 export async function probeAllSites(
   groups: BalanceSiteGroup[],
   concurrency = BALANCE_CONCURRENCY,
+  prev: BalanceLastCache = new Map(),
+  query: typeof querySiteBalance = querySiteBalance,
 ): Promise<BalanceSiteView[]> {
   const at = Date.now();
   const views: BalanceSiteView[] = new Array(groups.length);
@@ -74,20 +99,27 @@ export async function probeAllSites(
         continue;
       }
       try {
-        const raw = await querySiteBalance({ baseUrl: group.baseUrl, authToken: group.authToken });
-        views[i] = toView(group, raw, at);
+        const raw = await query({ baseUrl: group.baseUrl, authToken: group.authToken });
+        const view = toView(group, raw, at);
+        prev.set(groupKey(group), lastOf(view));
+        views[i] = view;
       } catch (error) {
         views[i] = toView(
           group,
           EMPTY_RAW,
           at,
           error instanceof Error ? error.message : String(error),
+          prev.get(groupKey(group)),
         );
       }
     }
   };
   await Promise.all(Array.from({ length: Math.min(concurrency, Math.max(1, groups.length)) }, worker));
   return sortBalanceSites(views);
+}
+
+function lastOf(view: BalanceSiteView): BalanceSiteLast {
+  return { remain: view.remain, limit: view.limit, used: view.used, currency: view.currency, at: view.at };
 }
 
 /** Remaining balance descending; failures (remain null) sink to the bottom,
@@ -101,16 +133,22 @@ export function sortBalanceSites(sites: BalanceSiteView[]): BalanceSiteView[] {
   });
 }
 
-function toView(group: BalanceSiteGroup, raw: BalanceRaw, at: number, error?: string): BalanceSiteView {
+function toView(group: BalanceSiteGroup, raw: BalanceRaw, at: number, error?: string, last?: BalanceSiteLast): BalanceSiteView {
+  // A failing site with a previous successful balance keeps showing the old
+  // numbers, marked stale (the error rides in `error` for the hover/tooltip).
+  // The probe time (`at`) stays at the PREVIOUS successful probe so the
+  // client can show "5 min ago" against the stale value.
+  const stale = error !== undefined && last?.remain != null;
   return {
     baseUrl: group.baseUrl,
     keyPreview: previewKey(group.authToken),
     presetNames: group.presetNames,
-    remain: raw.remain,
-    limit: raw.limit,
-    used: raw.used,
-    currency: raw.currency,
+    remain: stale ? last!.remain : raw.remain,
+    limit: stale ? last!.limit : raw.limit,
+    used: stale ? last!.used : raw.used,
+    currency: stale ? last!.currency : raw.currency,
     ...(error ? { error } : {}),
-    at,
+    ...(stale ? { stale: true } : {}),
+    at: stale ? last!.at : at,
   };
 }

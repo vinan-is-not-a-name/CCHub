@@ -1,6 +1,7 @@
 import { ManagedSession, SessionManager } from '../application/session.js';
 import { ConfigService } from '../domain/config/index.js';
 import { ClientMessage, ServerMessage, SessionTarget } from '../../shared/protocol.js';
+import { BalanceLastCache } from '../application/balance.js';
 import { dispatch } from './router.js';
 import { revealPath } from '../infrastructure/shell/revealPath.js';
 import { revealXshell, revealXftp } from '../infrastructure/shell/revealSsh.js';
@@ -51,6 +52,12 @@ export interface WsCtx {
    * by the Settings dialog's Detect button. Injected so tests can supply a
    * deterministic result without touching the real filesystem. */
   detectApps(): Promise<{ xshellPath: string | null; xftpPath: string | null; vscodePath: string | null }>;
+  /** Last successful balance results (by this connection), keyed by the
+   * (baseUrl, authToken) pair so the same host with different keys never
+   * shares a stale value. Injected so the WS layer owns the cache (not a
+   * global). */
+  getRecentBalanceCache?(): BalanceLastCache;
+  saveRecentBalanceCache?(cache: BalanceLastCache): void;
 }
 
 interface Subscription {
@@ -93,6 +100,10 @@ export function handleWs(ws: WsLike, manager: SessionManager, store: ConfigServi
   let focusedSessionId: string | null = null;
   const subscriptions = new Map<string, Subscription>();
   let metricsHandler: ((snap: MetricsSnapshot) => void) | null = null;
+  // Per-connection cache of the last successful balance probe, so the next
+  // probe can keep a failed site's prior balance (marked stale) instead of
+  // blanking it.
+  let recentBalanceCache: BalanceLastCache | null = null;
 
   const send = (msg: ServerMessage) => { if (ws.readyState === 1) ws.send(JSON.stringify(msg)); };
   const sendError = (error: unknown, code = 'ERROR', sourceType?: string) =>
@@ -149,6 +160,11 @@ export function handleWs(ws: WsLike, manager: SessionManager, store: ConfigServi
       return targetId ? manager.get(targetId) : undefined;
     },
     reveal: opts.reveal ?? revealPath,
+    // Per-connection cache of the last successful balance results (keyed by
+    // baseUrl|authToken), fed into the next probe so a site that fails keeps
+    // its prior balance (stale).
+    getRecentBalanceCache: () => recentBalanceCache ?? new Map(),
+    saveRecentBalanceCache: (cache) => { recentBalanceCache = cache; },
     // Wrap the reveal helpers so the production path is fed the exe paths
     // from appSettings + an onError callback that surfaces failures via the
     // WS protocol. Test injections stay flat 2-arg so specs don't need to
