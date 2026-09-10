@@ -195,7 +195,7 @@ export type ServerMessage =
   // (baseUrl, authToken) — several presets sharing one relay site collapse
   // into a single row listing all of them — sorted by remaining balance
   // descending, failures last. Each site carries its own `at` probe time.
-  | { type: 'balance.result'; requestId: string; sites: BalanceSiteView[] }
+  | { type: 'balance.result'; requestId: string; sites: BalanceSiteView[]; final?: boolean }
   // Host-resource pill for the topbar. See MetricsSnapshotMsg.
   | MetricsSnapshotMsg
   // catch-all

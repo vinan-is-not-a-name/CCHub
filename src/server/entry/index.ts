@@ -10,6 +10,7 @@ import { loadRuntime } from './runtime.js';
 import { logger } from './logger.js';
 import { MetricsCollector } from '../infrastructure/metrics/metricsCollector.js';
 import { SessionHookProvisioner } from '../infrastructure/hook/hookProvisioner.js';
+import { BalanceLastCache } from '../application/balance.js';
 
 const runtime = loadRuntime();
 
@@ -37,7 +38,10 @@ const sshSeed: SshSeed | undefined = runtime.ssh.host && runtime.ssh.username
 const store = new ConfigService(repo, process.cwd(), { onFirstCreate: (initial) => seedFromEnv(initial, sshSeed) });
 
 const metrics = new MetricsCollector(manager);
-const app = await buildApp({ manager, store, authToken: runtime.authToken, defaultTarget: runtime.defaultTarget, feeder, metrics });
+// Process-wide last-known balance cache: a page refresh or WS reconnect keeps
+// showing the previous balances (stale, with their age) instead of blanking.
+const balanceCache: BalanceLastCache = new Map();
+const app = await buildApp({ manager, store, authToken: runtime.authToken, defaultTarget: runtime.defaultTarget, feeder, metrics, balanceCache });
 await app.listen({ port: runtime.port, host: runtime.host });
 
 logger.info(`cchub running: http://${runtime.host}:${runtime.port}`);

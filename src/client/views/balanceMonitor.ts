@@ -77,11 +77,15 @@ export function mountBalanceMonitor(deps: AppDeps): void {
       return;
     }
     if (msg.type !== 'balance.result' || msg.requestId !== inFlightRequestId) return;
-    inFlightRequestId = null;
-    // Pass the previous results so a site that failed THIS round keeps its
-    // last-known balance, marked stale (see BalanceSiteView.stale).
+    // Two frames per request: `final:false` carries the process-wide cache
+    // (rendered immediately, stale values with their age), `final:true` the
+    // fresh probe. Only the final frame ends the in-flight state, so the
+    // "refreshing" label stays up across the cached frame.
     sites = msg.sites;
-    lastProbed = Date.now();
+    if (msg.final !== false) {
+      inFlightRequestId = null;
+      lastProbed = Date.now();
+    }
     updatePill();
     if (hoverOpen) renderDropdown();
   });
@@ -226,6 +230,8 @@ function balanceText(site: BalanceSiteView): string {
     }
     return text;
   }
+  // 'pending' = the cached first frame, probe still running for this site.
+  if (site.error === 'pending') return '…';
   return site.error === 'unsupported' ? t('balance.unsupported') : t('balance.error').replace('{error}', site.error ?? '?');
 }
 
@@ -243,8 +249,10 @@ function relativeAge(at: number): string {
 }
 
 /** Colour the balance cell by health: red when the site failed or reported
- * zero/near-zero remaining, amber when low, plain otherwise. */
+ * zero/near-zero remaining, amber when low, muted while a probe is pending,
+ * plain otherwise. */
 function balanceClass(site: BalanceSiteView): string {
+  if (site.error === 'pending') return 'bal-pending';
   if (site.remain === null) return 'bal-err';
   if (site.remain <= 5) return 'bal-err';
   if (site.remain <= 20) return 'bal-warn';

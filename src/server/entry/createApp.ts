@@ -15,6 +15,7 @@ import { FEED_IMAGE_MAX_BYTES } from '../../shared/mcp.js';
 import { registerLoopbackGuard } from './loopbackGuard.js';
 import { registerOriginGuard } from './originGuard.js';
 import { MetricsCollector } from '../infrastructure/metrics/metricsCollector.js';
+import { BalanceLastCache } from '../application/balance.js';
 import { makeHookRoute } from '../infrastructure/hook/hookRoute.js';
 
 export interface AppDeps {
@@ -29,6 +30,9 @@ export interface AppDeps {
    * disable it in test/embedded setups; production wires a real one. Started
    * inside buildApp() so its lifecycle matches the Fastify instance. */
   metrics?: MetricsCollector;
+  /** Process-wide last-known balance cache (survives page refreshes / WS
+   * reconnects). Optional — absent means each connection gets its own. */
+  balanceCache?: BalanceLastCache;
   /** Dispatches Claude Code hook events from POST /hook/:sessionId into the
    * corresponding ManagedSession. Optional for tests that don't mount hooks. */
   dispatchHook?: (sessionId: string, kind: string) => void;
@@ -68,6 +72,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       authToken: deps.authToken,
       defaultTarget: deps.defaultTarget,
       metrics: deps.metrics,
+      balanceCache: deps.balanceCache,
     });
   });
   if (deps.feeder) {

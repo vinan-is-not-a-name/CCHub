@@ -122,6 +122,37 @@ function lastOf(view: BalanceSiteView): BalanceSiteLast {
   return { remain: view.remain, limit: view.limit, used: view.used, currency: view.currency, at: view.at };
 }
 
+/** Views built from the cache alone, for the immediate frame a fresh client
+ * gets while the real probe runs. Cached sites show their last-known balance
+ * marked stale (with the age the client renders); uncached sites carry
+ * `error: 'pending'` so the row reads "…" instead of a failure. */
+export function cachedViews(groups: BalanceSiteGroup[], cache: BalanceLastCache, at: number): BalanceSiteView[] {
+  return groups.map((group) => {
+    const base = {
+      baseUrl: group.baseUrl,
+      keyPreview: previewKey(group.authToken),
+      presetNames: group.presetNames,
+      limit: null as number | null,
+      used: null as number | null,
+      remain: null as number | null,
+      currency: 'USD',
+    };
+    const last = cache.get(groupKey(group));
+    if (last && last.remain != null) {
+      return {
+        ...base,
+        remain: last.remain,
+        limit: last.limit,
+        used: last.used,
+        currency: last.currency,
+        stale: true,
+        at: last.at,
+      };
+    }
+    return { ...base, error: 'pending', at };
+  });
+}
+
 /** Remaining balance descending; failures (remain null) sink to the bottom,
  * ties broken by baseUrl so the ordering is deterministic across refreshes. */
 export function sortBalanceSites(sites: BalanceSiteView[]): BalanceSiteView[] {

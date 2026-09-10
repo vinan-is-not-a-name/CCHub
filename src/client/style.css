@@ -390,6 +390,9 @@ body {
 }
 .balance-monitor .bal-bal.bal-warn { color: var(--warning, #d97706); }
 .balance-monitor .bal-bal.bal-err { color: var(--danger, #dc2626); }
+/* First (cached) frame while the probe for this site is still running: the
+   row is a placeholder, not a failure — keep it quiet. */
+.balance-monitor .bal-bal.bal-pending { color: var(--muted); }
 .balance-monitor .bal-empty {
   color: var(--muted);
   font-style: italic;

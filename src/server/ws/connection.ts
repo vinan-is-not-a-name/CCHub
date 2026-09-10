@@ -52,12 +52,11 @@ export interface WsCtx {
    * by the Settings dialog's Detect button. Injected so tests can supply a
    * deterministic result without touching the real filesystem. */
   detectApps(): Promise<{ xshellPath: string | null; xftpPath: string | null; vscodePath: string | null }>;
-  /** Last successful balance results (by this connection), keyed by the
-   * (baseUrl, authToken) pair so the same host with different keys never
-   * shares a stale value. Injected so the WS layer owns the cache (not a
-   * global). */
+  /** Process-wide last-known balance cache, keyed by the (baseUrl, authToken)
+   * pair so the same host with different keys never shares a stale value.
+   * Owned by the entry point (not per connection): a page refresh or a
+   * reconnect must still see the previous balances. */
   getRecentBalanceCache?(): BalanceLastCache;
-  saveRecentBalanceCache?(cache: BalanceLastCache): void;
 }
 
 interface Subscription {
@@ -72,6 +71,10 @@ interface Subscription {
 export interface HandleWsOptions {
   authToken: string;
   defaultTarget: SessionTarget;
+  /** Process-wide last-known balance cache — owned by the entry point so it
+   * survives page refreshes and reconnects (see WsCtx.getRecentBalanceCache).
+   * Absent → a throwaway per-connection map (tests). */
+  balanceCache?: BalanceLastCache;
   /** Override for the file-browser reveal side-effect. Defaults to the real
    * cross-platform `revealPath`. Tests inject a spy so no real explorer window
    * opens during CI. */
@@ -100,10 +103,6 @@ export function handleWs(ws: WsLike, manager: SessionManager, store: ConfigServi
   let focusedSessionId: string | null = null;
   const subscriptions = new Map<string, Subscription>();
   let metricsHandler: ((snap: MetricsSnapshot) => void) | null = null;
-  // Per-connection cache of the last successful balance probe, so the next
-  // probe can keep a failed site's prior balance (marked stale) instead of
-  // blanking it.
-  let recentBalanceCache: BalanceLastCache | null = null;
 
   const send = (msg: ServerMessage) => { if (ws.readyState === 1) ws.send(JSON.stringify(msg)); };
   const sendError = (error: unknown, code = 'ERROR', sourceType?: string) =>
@@ -160,11 +159,9 @@ export function handleWs(ws: WsLike, manager: SessionManager, store: ConfigServi
       return targetId ? manager.get(targetId) : undefined;
     },
     reveal: opts.reveal ?? revealPath,
-    // Per-connection cache of the last successful balance results (keyed by
-    // baseUrl|authToken), fed into the next probe so a site that fails keeps
-    // its prior balance (stale).
-    getRecentBalanceCache: () => recentBalanceCache ?? new Map(),
-    saveRecentBalanceCache: (cache) => { recentBalanceCache = cache; },
+    // Process-wide last-known balance cache (shared by every connection), fed
+    // into each probe so a failing site keeps its prior balance.
+    getRecentBalanceCache: () => opts.balanceCache ?? new Map(),
     // Wrap the reveal helpers so the production path is fed the exe paths
     // from appSettings + an onError callback that surfaces failures via the
     // WS protocol. Test injections stay flat 2-arg so specs don't need to

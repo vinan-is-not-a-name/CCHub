@@ -12,6 +12,7 @@ import {
   previewKey,
   sortBalanceSites,
   probeAllSites,
+  cachedViews,
   BalanceSiteLast,
 } from '../src/server/application/balance.js';
 import type { AnthropicEnvProfile, BalanceSiteView } from '../src/shared/protocol.js';
@@ -188,6 +189,47 @@ test.describe('probeAllSites — stale cache per key', () => {
     await probeAllSites(groups, 4, cache, query as never);
     expect(cache.get('https://api.ikuncode.cc|sk-BBBBBBBB')!.remain).toBe(90);
     expect(cache.get('https://api.ikuncode.cc|sk-AAAAAAAA')!.remain).toBe(55); // unchanged
+  });
+});
+
+test.describe('cachedViews — the immediate frame', () => {
+  const groups = [
+    { baseUrl: 'https://a.dev', authToken: 'sk-AAAAAAAA', presetNames: ['A'] },
+    { baseUrl: 'https://b.dev', authToken: 'sk-BBBBBBBB', presetNames: ['B'] },
+  ];
+
+  test('cached site renders its own last value, stale, with the cached age', () => {
+    const cache = new Map<string, BalanceSiteLast>([
+      ['https://a.dev|sk-AAAAAAAA', { remain: 42, limit: 100, used: 58, currency: 'USD', at: 5000 }],
+    ]);
+    const views = cachedViews(groups, cache, 9999);
+    const a = views.find((v) => v.baseUrl === 'https://a.dev')!;
+    expect(a.remain).toBe(42);
+    expect(a.stale).toBe(true);
+    expect(a.at).toBe(5000); // the cached probe time, not now
+    expect(a.error).toBeUndefined();
+  });
+
+  test('uncached site is pending, not failed', () => {
+    const views = cachedViews(groups, new Map(), 9999);
+    for (const view of views) {
+      expect(view.remain).toBe(null);
+      expect(view.error).toBe('pending');
+      expect(view.stale).toBeUndefined();
+    }
+  });
+
+  test('same host, different key: each cached entry stays its own', () => {
+    const sameHost = [
+      { baseUrl: 'https://x.dev', authToken: 'sk-AAAAAAAA', presetNames: ['A'] },
+      { baseUrl: 'https://x.dev', authToken: 'sk-BBBBBBBB', presetNames: ['B'] },
+    ];
+    const cache = new Map<string, BalanceSiteLast>([
+      ['https://x.dev|sk-AAAAAAAA', { remain: 11, limit: null, used: null, currency: 'USD', at: 1 }],
+    ]);
+    const views = cachedViews(sameHost, cache, 9999);
+    expect(views.find((v) => v.presetNames[0] === 'A')!.remain).toBe(11);
+    expect(views.find((v) => v.presetNames[0] === 'B')!.error).toBe('pending');
   });
 });
 
