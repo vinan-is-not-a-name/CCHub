@@ -46,6 +46,14 @@ export interface CliLaunchSpec {
   /** Path to a per-session MCP config file. When set, the CLI is told to load it
    * and to allow the feed-image tool. Absent → no MCP flags (feature disabled). */
   mcpConfigPath?: string;
+  /** LLM-profile API env to re-inject as an inline `--settings` env block (SSH
+   * launches only). cc applies a settings.json `env` block ON TOP of the
+   * process env, so on a remote host whose ~/.claude settings.json carries its
+   * own ANTHROPIC_* env, the exported profile env would lose. The `--settings`
+   * CLI layer wins over every settings file, so this makes the user's chosen
+   * profile authoritative regardless of the host's settings. Never written to
+   * disk — the API key rides only in the argv for the CC process's lifetime. */
+  apiEnv?: Record<string, string>;
 }
 
 /** Adapter for a CLI surface (Claude, aider, etc.). Lets the session manager stay free of CLI-specific text.

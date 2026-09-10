@@ -54,6 +54,13 @@ export class ClaudeCliAdapter implements CliAdapter {
     if (launch.mcpConfigPath) {
       argv.push('--mcp-config', launch.mcpConfigPath);
     }
+    // Inline env-only settings: the --settings CLI layer merges with (and
+    // overrides) every settings file, so a remote host's settings.json env
+    // block cannot mask the user's chosen profile. No file is written — the
+    // JSON (including the API key) lives only in this argv.
+    if (launch.apiEnv && Object.keys(launch.apiEnv).length > 0) {
+      argv.push('--settings', JSON.stringify({ env: launch.apiEnv }));
+    }
     return argv;
   }
 

@@ -40,6 +40,37 @@ test.describe('buildCommand', () => {
     expect(cli.buildCommand({ resume: 'continue', mcpConfigPath: '/tmp/mcp-abc.json' })).not.toContain('--allowedTools');
   });
 
+  test('apiEnv is injected as an inline --settings env block (no file written)', () => {
+    const argv = cli.buildCommand({
+      apiEnv: { ANTHROPIC_BASE_URL: 'https://api.ikuncode.cc', ANTHROPIC_AUTH_TOKEN: 'sk-secret' },
+    });
+    expect(argv).toContain('--settings');
+    const idx = argv.indexOf('--settings');
+    expect(JSON.parse(argv[idx + 1])).toEqual({
+      env: { ANTHROPIC_BASE_URL: 'https://api.ikuncode.cc', ANTHROPIC_AUTH_TOKEN: 'sk-secret' },
+    });
+  });
+
+  test('apiEnv empty or absent adds no --settings', () => {
+    expect(cli.buildCommand({ apiEnv: {} })).toEqual(['claude']);
+    expect(cli.buildCommand({ apiEnv: undefined })).toEqual(['claude']);
+    expect(cli.buildCommand({})).toEqual(['claude']);
+  });
+
+  test('--settings composes with resume + mcp-config', () => {
+    const argv = cli.buildCommand({
+      resume: 'continue',
+      mcpConfigPath: '/tmp/mcp.json',
+      apiEnv: { ANTHROPIC_MODEL: 'm' },
+    });
+    // argv order: claude -c --mcp-config <path> --settings <json>
+    const idx = argv.indexOf('--settings');
+    expect(idx).toBeGreaterThan(-1);
+    expect(argv[idx - 1]).toBe('/tmp/mcp.json');
+    expect(argv[idx - 2]).toBe('--mcp-config');
+    expect(JSON.parse(argv[idx + 1])).toEqual({ env: { ANTHROPIC_MODEL: 'm' } });
+  });
+
   test('no MCP flags when mcpConfigPath is absent', () => {
     const argv = cli.buildCommand({ resume: 'continue' });
     expect(argv).not.toContain('--mcp-config');
