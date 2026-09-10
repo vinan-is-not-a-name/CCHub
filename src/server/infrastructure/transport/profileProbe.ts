@@ -1,3 +1,5 @@
+import { requestText } from './httpRequest.js';
+
 const TEST_TIMEOUT = 8000;
 
 export interface ProfileProbeParams {
@@ -30,18 +32,19 @@ export function isAnthropicFormat(url: string): boolean {
 }
 
 async function probeOpenAI(baseUrl: string, token: string | undefined, model: string): Promise<void> {
-  const res = await fetch(`${baseUrl}/v1/chat/completions`, {
+  // requestText with agent:false — a fresh connection per probe, immune to
+  // the half-dead-socket reuse described in httpRequest.ts.
+  const res = await requestText(`${baseUrl}/v1/chat/completions`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
     body: JSON.stringify({ model, messages: [{ role: 'user', content: 'ping' }], max_tokens: 1 }),
-    signal: AbortSignal.timeout(TEST_TIMEOUT),
-    redirect: 'error',
+    timeoutMs: TEST_TIMEOUT,
   });
-  if (!res.ok) throw new Error(`${res.status} ${(await res.text()).slice(0, 300)}`);
+  if (res.status < 200 || res.status >= 300) throw new Error(`${res.status} ${res.text.slice(0, 300)}`);
 }
 
 async function probeAnthropic(baseUrl: string, token: string | undefined, model: string): Promise<void> {
-  const res = await fetch(`${baseUrl}/v1/messages`, {
+  const res = await requestText(`${baseUrl}/v1/messages`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -49,8 +52,7 @@ async function probeAnthropic(baseUrl: string, token: string | undefined, model:
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({ model, max_tokens: 1, messages: [{ role: 'user', content: 'ping' }] }),
-    signal: AbortSignal.timeout(TEST_TIMEOUT),
-    redirect: 'error',
+    timeoutMs: TEST_TIMEOUT,
   });
-  if (!res.ok) throw new Error(`${res.status} ${(await res.text()).slice(0, 300)}`);
+  if (res.status < 200 || res.status >= 300) throw new Error(`${res.status} ${res.text.slice(0, 300)}`);
 }
