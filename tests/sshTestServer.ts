@@ -23,15 +23,29 @@ export interface SshTestServerHandle {
   close(): Promise<void>;
 }
 
+/** ssh2's OpenSSH public-key emission intermittently produces a blob its own
+ * parser rejects ("Malformed OpenSSH public key" — seen on CI's ubuntu
+ * runners, once as a flaky retry and once fatally at config load). The
+ * failure is per-generation, not environmental: generating again yields a
+ * parseable key, so retry instead of failing the entire run from config
+ * load, which cannot be retried by the test runner. */
+function generateUserKeys() {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const keys = utils.generateKeyPairSync('ed25519');
+    const parsed = utils.parseKey(keys.public);
+    if (!(parsed instanceof Error)) return { ...keys, parsed };
+  }
+  throw new Error('could not generate a parseable ed25519 test key in 5 attempts');
+}
+
 export async function startSshTestServer(opts: {
   username?: string;
   keyDir: string;
 }): Promise<SshTestServerHandle> {
   const username = opts.username ?? 'cchub-test';
   const hostKeys = utils.generateKeyPairSync('ed25519');
-  const userKeys = utils.generateKeyPairSync('ed25519');
-  const allowedPub = utils.parseKey(userKeys.public);
-  if (allowedPub instanceof Error) throw allowedPub;
+  const userKeys = generateUserKeys();
+  const allowedPub = userKeys.parsed;
 
   mkdirSync(opts.keyDir, { recursive: true });
   const privateKeyPath = join(opts.keyDir, 'id_ed25519');
