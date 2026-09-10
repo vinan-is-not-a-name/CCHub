@@ -141,7 +141,10 @@ test.describe('probeAllSites — stale cache per key', () => {
     { baseUrl: 'https://api.ikuncode.cc', authToken: 'sk-AAAAAAAA', presetNames: ['A'] },
     { baseUrl: 'https://api.ikuncode.cc', authToken: 'sk-BBBBBBBB', presetNames: ['B'] },
   ];
-  const prevCache = new Map<string, BalanceSiteLast>([
+  // A fresh cache per test: probeAllSites WRITES successful results back into
+  // the map it is handed, so sharing one instance across tests leaks state
+  // (test 1's success made test 2's "never succeeded" site look stale).
+  const freshCache = () => new Map<string, BalanceSiteLast>([
     ['https://api.ikuncode.cc|sk-AAAAAAAA', { remain: 55, limit: 100, used: 45, currency: 'USD', at: 1000 }],
     ['https://api.ikuncode.cc|sk-BBBBBBBB', { remain: 80, limit: 100, used: 20, currency: 'USD', at: 1500 }],
   ]);
@@ -151,7 +154,7 @@ test.describe('probeAllSites — stale cache per key', () => {
       if (p.authToken === 'sk-AAAAAAAA') throw new Error('boom');
       return { remain: 80, limit: 100, used: 20, currency: 'USD' };
     };
-    const sites = await probeAllSites(groups, 4, prevCache, query as never);
+    const sites = await probeAllSites(groups, 4, freshCache(), query as never);
     const a = sites.find((s) => s.keyPreview === 'sk-A...AAAA')!;
     const b = sites.find((s) => s.keyPreview === 'sk-B...BBBB')!;
     // A failed → stale with A's own prior balance (55), not B's (80).
@@ -167,7 +170,8 @@ test.describe('probeAllSites — stale cache per key', () => {
 
   test('sites that never succeeded stay failed (no cross-contamination from another key)', async () => {
     const query = async () => { throw new Error('down'); };
-    const sites = await probeAllSites(groups, 4, prevCache, query as never);
+    const emptyCache = new Map<string, BalanceSiteLast>();
+    const sites = await probeAllSites(groups, 4, emptyCache, query as never);
     for (const site of sites) {
       expect(site.remain).toBe(null);
       expect(site.stale).toBeUndefined(); // no prior success yet → not stale
@@ -180,7 +184,7 @@ test.describe('probeAllSites — stale cache per key', () => {
       if (p.authToken === 'sk-AAAAAAAA') throw new Error('hmm');
       return { remain: 90, limit: 100, used: 10, currency: 'USD' };
     };
-    const cache = new Map(prevCache);
+    const cache = freshCache();
     await probeAllSites(groups, 4, cache, query as never);
     expect(cache.get('https://api.ikuncode.cc|sk-BBBBBBBB')!.remain).toBe(90);
     expect(cache.get('https://api.ikuncode.cc|sk-AAAAAAAA')!.remain).toBe(55); // unchanged
