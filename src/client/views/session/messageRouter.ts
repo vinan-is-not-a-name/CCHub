@@ -71,6 +71,9 @@ export function makeMessageRouter(deps: AppDeps, attach: AttachController, openL
       case 'state':
         deps.store.setSessionState(msg.id, msg.state);
         return;
+      case 'session.envdiff':
+        deps.store.setSessionEnvDiff(msg.sessionId, msg.diff);
+        return;
       case 'session.exit':
         deps.store.setSessionState(msg.id, 'exited');
         deps.store.set('creatingSession', false);

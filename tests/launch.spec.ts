@@ -96,6 +96,17 @@ test.describe('resolveLaunch', () => {
     expect(r.env.PATH ?? r.env.Path).toBeDefined();
   });
 
+  test('profileEnv carries the profile-only ANTHROPIC env (pre-merge), for --settings injection', () => {
+    const local = localServer('local');
+    const p1 = profile('p1', { ANTHROPIC_MODEL: 'sonnet', ANTHROPIC_BASE_URL: 'https://api.ikuncode.cc' });
+    const svc = makeService({ servers: [local], profiles: [p1], defaults: { serverId: 'local', profileId: 'p1' } });
+    const r = resolveLaunch({ launch: { cwd: '/work' } }, svc);
+    expect(r.profileEnv).toEqual({ ANTHROPIC_MODEL: 'sonnet', ANTHROPIC_BASE_URL: 'https://api.ikuncode.cc' });
+    // The merged env still wins for the actual process — profileEnv is only the
+    // subset cchub re-injects via --settings on SSH launches.
+    expect(r.env.ANTHROPIC_MODEL).toBe('sonnet');
+  });
+
   test('SSH preset with a proxy resolves the tunnel and injects proxy env', () => {
     const ssh = sshServer('ssh');
     const px = proxy('px1', { bindPort: 1080 });

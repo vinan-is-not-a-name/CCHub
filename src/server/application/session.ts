@@ -2,7 +2,8 @@ import { EventEmitter } from 'events';
 import { randomUUID } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
-import { SessionState, SessionInfo, ResolvedLaunch } from '../../shared/protocol.js';
+import { SessionState, SessionInfo, ResolvedLaunch, AnthropicEnv } from '../../shared/protocol.js';
+import { ANTHROPIC_ENV_KEYS } from '../../shared/envKeys.js';
 import { adapterFor, ShellAdapter, EffectiveLaunch } from '../infrastructure/shell/shellAdapter.js';
 import { Connector, ConnectorChannel, makeConnector } from '../infrastructure/transport/connector.js';
 import { TerminalScreen } from '../infrastructure/terminal/terminalScreen.js';
@@ -133,7 +134,14 @@ export class ManagedSession extends EventEmitter {
     if (ctx.launch.effort) env['CLAUDE_CODE_EFFORT_LEVEL'] = ctx.launch.effort;
     const mcpConfigPath = ctx.mcp?.configPath;
     const base: EffectiveLaunch = { ...ctx.launch, env, command: [], mcpConfigPath };
-    this.effectiveLaunch = { ...base, command: cli.buildCommand({ ...base, mcpConfigPath }) };
+    // SSH-only: re-inject the profile's API env as an inline --settings env
+    // block so a remote host's settings.json env cannot mask the selected
+    // provider (see CliLaunchSpec.apiEnv). The MCP env never carries API
+    // vars, so the profile vars are the only ones cchub owns here.
+    const apiEnv = ctx.launch.server.kind === 'ssh'
+      ? pickApiEnv(ctx.launch.profileEnv)
+      : undefined;
+    this.effectiveLaunch = { ...base, command: cli.buildCommand({ ...base, mcpConfigPath, apiEnv }) };
     this.stateMachine = new SessionStateMachine(cli, timing);
     this.screen = new TerminalScreen(cols, rows, historySize);
     this.channel = this.startChannel(this.effectiveLaunch);
@@ -611,4 +619,16 @@ export class SessionManager {
     for (const s of this.sessions.values()) s.kill();
     this.sessions.clear();
   }
+}
+
+/** The ANTHROPIC_* subset of a profile env, values only — the keys cc's
+ * settings env block is meant to carry. */
+function pickApiEnv(profileEnv: AnthropicEnv | undefined): Record<string, string> | undefined {
+  if (!profileEnv) return undefined;
+  const out: Record<string, string> = {};
+  for (const key of ANTHROPIC_ENV_KEYS) {
+    const value = profileEnv[key];
+    if (value) out[key] = value;
+  }
+  return out;
 }

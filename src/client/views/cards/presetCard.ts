@@ -92,7 +92,14 @@ export function mountPresetCard(deps: AppDeps) {
     },
   });
 
-  el<HTMLSelectElement>('preset-server').onchange = () => updateTarget();
+  el<HTMLSelectElement>('preset-server').onchange = () => {
+    updateTarget();
+    // Server switched: a typed cwd belongs to the previous server and likely
+    // does not exist there. Clear it so the browse / suggester repopulates
+    // against the new server. fillForm sets server+cwd as one unit (no change
+    // event fires), so loading a preset keeps its cwd.
+    setVal('preset-cwd', '');
+  };
   el<HTMLButtonElement>('preset-browse').onclick = () =>
     deps.bus.emit('launch:select-cwd', { targetInput: 'preset-cwd', serverId: val('preset-server') });
 

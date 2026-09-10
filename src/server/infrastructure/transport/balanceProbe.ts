@@ -1,3 +1,5 @@
+import { requestText } from './httpRequest.js';
+
 /**
  * Relay-site balance probe for the topbar balance dropdown.
  *
@@ -16,6 +18,12 @@
 export const USAGE_DIVISOR = 100;
 
 const QUERY_TIMEOUT_MS = 6000;
+
+/** Attempts per request on timeout/connection failure. Measured on a host
+ * with ~40-50% single-connection success to these endpoints: 2 attempts lift a
+ * site to roughly 75%, 3 to ~85%, at the cost of one extra timeout window in
+ * the worst case (the two path variants still race in parallel). */
+const QUERY_ATTEMPTS = 3;
 
 export interface BalanceRaw {
   /** Total quota; null when the payloads are unparseable. */
@@ -114,7 +122,13 @@ export function isDeepseekOfficial(baseUrl: string): boolean {
  * endpoint); everything else is treated as a NewAPI relay: bare path first,
  * then the /v1 variant (some relays mount the dashboard only there), exactly
  * like the reference dashboard. Throws with a short human-readable message on
- * failure. */
+ * failure.
+ *
+ * Both variants are attempted IN PARALLEL and the first success wins: they are
+ * one-shot requests against hosts whose single-connection success rate can be
+ * well under 50% (transient routing/GFW flakiness), so serialising them would
+ * double the wall-clock of a failure without improving the odds. Each request
+ * also retries internally (see fetchJson). */
 export async function querySiteBalance(params: BalanceProbeParams): Promise<BalanceRaw> {
   const base = normalizeBaseUrl(params.baseUrl);
   if (isDeepseekOfficial(base)) {
@@ -123,49 +137,57 @@ export async function querySiteBalance(params: BalanceProbeParams): Promise<Bala
     // hit a 404. Build from the origin instead.
     const origin = new URL(base).origin;
     const paths = ['/user/balance', '/v1/user/balance'];
-    let lastError: unknown;
-    for (const p of paths) {
-      try {
-        return parseDeepseekBalance(await fetchJson(`${origin}${p}`, params.authToken));
-      } catch (error) {
-        lastError = error;
-      }
-    }
-    throw lastError instanceof Error ? lastError : new Error(String(lastError));
+    return firstSuccessful(paths.map((p) => async () => parseDeepseekBalance(await fetchJson(`${origin}${p}`, params.authToken))));
   }
   const paths = [
     '/dashboard/billing/subscription',
     '/v1/dashboard/billing/subscription',
   ];
-  let lastError: unknown;
-  for (const subPath of paths) {
+  return firstSuccessful(paths.map((subPath) => {
     const usePath = subPath.replace('/subscription', '/usage');
-    try {
+    return async () => {
       const [sub, use] = await Promise.all([
         fetchJson(`${base}${subPath}`, params.authToken),
         fetchJson(`${base}${usePath}`, params.authToken),
       ]);
       return parseBalanceResponse(sub, use);
-    } catch (error) {
-      lastError = error;
+    };
+  }));
+}
+
+/** Race the attempts, resolve with the first success, reject with the last
+ * error once all have failed. (Promise.any would do the same but loses the
+ * "last error" detail we surface in the UI.) */
+async function firstSuccessful<T>(attempts: Array<() => Promise<T>>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let pending = attempts.length;
+    let lastError: unknown = new Error('no attempt');
+    for (const attempt of attempts) {
+      attempt().then(resolve, (error) => {
+        lastError = error;
+        pending -= 1;
+        if (pending === 0) reject(lastError instanceof Error ? lastError : new Error(String(lastError)));
+      });
     }
-  }
-  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+  });
 }
 
 async function fetchJson(url: string, token: string): Promise<unknown> {
-  const res = await fetch(url, {
+  // requestText, not fetch: every attempt opens a fresh connection
+  // (agent:false) so a long-running process can't keep reusing sockets a
+  // proxy/VPN killed, and transient connection failures are retried — see
+  // httpRequest.ts.
+  const res = await requestText(url, {
     headers: { authorization: `Bearer ${token}` },
-    signal: AbortSignal.timeout(QUERY_TIMEOUT_MS),
-    redirect: 'error',
+    timeoutMs: QUERY_TIMEOUT_MS,
+    attempts: QUERY_ATTEMPTS,
   });
-  const text = await res.text();
-  if (!res.ok) {
-    throw new Error(`${res.status} ${text.slice(0, 120)}`);
+  if (res.status < 200 || res.status >= 300) {
+    throw new Error(`${res.status} ${res.text.slice(0, 120)}`);
   }
   let data: unknown = null;
   try {
-    data = JSON.parse(text);
+    data = JSON.parse(res.text);
   } catch {
     throw new Error(`non-JSON response from ${url}`);
   }

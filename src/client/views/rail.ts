@@ -2,7 +2,7 @@ import { el } from '../dom.js';
 import type { AppDeps } from '../deps.js';
 import type { ClientSession } from '../state.js';
 import type { SessionInfo } from '../../shared/protocol.js';
-import { sessionLabel, sessionTooltip, sessionShortName } from './sessionLabel.js';
+import { sessionLabel, sessionTooltip, sessionShortName, syncEnvDiffMark } from './sessionLabel.js';
 import { attachDragReorder } from './paneReorder.js';
 import { revealForSession } from './revealFor.js';
 import { t, subscribeLocale } from '../i18n.js';
@@ -102,7 +102,10 @@ export function mountRail(deps: AppDeps) {
 
     const nameLine = tab.querySelector<HTMLElement>('.tab-name');
     const metaLine = tab.querySelector<HTMLElement>('.tab-meta');
-    if (nameLine) nameLine.textContent = sessionShortName(s.info);
+    if (nameLine) {
+      nameLine.textContent = sessionShortName(s.info);
+      syncEnvDiffMark(nameLine, s.envDiff);
+    }
     if (metaLine) renderMeta(metaLine, s.info, (anchor) => revealFor(s.info, anchor));
 
     const close = tab.querySelector<HTMLButtonElement>('.tab-close');

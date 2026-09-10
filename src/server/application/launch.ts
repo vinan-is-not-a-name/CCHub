@@ -39,6 +39,8 @@ export function resolveLaunch(input: CreateSessionRequest, store: ConfigService,
     server,
     cwd: params.cwd,
     env,
+    // Profile-only env, pre-merge — see ResolvedLaunch.profileEnv.
+    profileEnv: profile?.env,
     resume: params.resume,
     condaEnv: params.condaEnv,
     skipPermissions: launch.skipPermissions ?? preset?.skipPermissions,

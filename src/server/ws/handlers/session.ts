@@ -1,5 +1,6 @@
-import { ClientMessage, ResolvedLaunch } from '../../../shared/protocol.js';
+import { ClientMessage, ResolvedLaunch, SshServerProfile } from '../../../shared/protocol.js';
 import { resolveLaunch } from '../../application/launch.js';
+import { probeRemoteEnv, diffRemoteEnv } from '../../infrastructure/transport/envProbe.js';
 import { WsCtx } from '../connection.js';
 
 type SessionMessage = Extract<ClientMessage, { type: 'input' | 'resize' | 'session.create' | 'session.attach' | 'session.destroy' | 'session.reorder' | 'session.list' }>;
@@ -20,6 +21,10 @@ export function handleSessionMessage(ctx: WsCtx, msg: SessionMessage): void {
       const launch = resolveLaunch(msg, ctx.store, ctx.defaultTarget);
       const session = ctx.manager.create(launch, msg.cols, msg.rows);
       recordRecent(ctx, msg, launch);
+      // Fire-and-forget env divergence probe. Never blocks the session, never
+      // surfaces as an error: if the probe fails (network, timeout, exotic
+      // remote shell) the user simply gets no hint.
+      if (launch.server.kind === 'ssh') notifyEnvDiff(ctx, launch.server, session.id);
       ctx.send({ type: 'session.created', session: session.getInfo() });
       // Push the updated snapshot so the topbar dropdown picks up the new
       // recent entry without needing a manual config.get. Mirrors the same
@@ -57,6 +62,23 @@ export function handleSessionMessage(ctx: WsCtx, msg: SessionMessage): void {
  * for the fields it authoritatively decides (cwd/condaEnv/resume/name). Any
  * ambiguous id falls through the same defaults ladder resolveLaunch used, so
  * a chip built here re-resolves back to the same server/profile/proxy. */
+/** Probe the remote host's `bash -lc` env (what this session's spawn gets)
+ * and an interactive-login env (`bash -lic`, which reads .bashrc fully),
+ * and push `session.envdiff` when they diverge. Any failure or a probe
+ * that finds no divergence is silent. */
+async function notifyEnvDiff(ctx: WsCtx, server: SshServerProfile, sessionId: string): Promise<void> {
+  try {
+    const [base, interactive] = await Promise.all([
+      probeRemoteEnv(server, { interactive: false }),
+      probeRemoteEnv(server, { interactive: true }),
+    ]);
+    const diff = diffRemoteEnv(base, interactive);
+    if (diff) ctx.send({ type: 'session.envdiff', sessionId, diff });
+  } catch {
+    // Informational feature — never surface probe failures.
+  }
+}
+
 function recordRecent(ctx: WsCtx, msg: CreateMessage, launch: ResolvedLaunch): void {
   const defaults = ctx.store.getDefaults();
   // Preset is opt-in — same rule as resolveLaunch. If the caller didn't

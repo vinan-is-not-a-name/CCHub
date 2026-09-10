@@ -32,7 +32,15 @@ export function mountLaunchDialog(deps: AppDeps, params: URLSearchParams) {
   });
 
   el<HTMLSelectElement>('launch-preset').onchange = () => applyPreset();
-  el<HTMLSelectElement>('launch-server').onchange = () => updateTarget();
+  el<HTMLSelectElement>('launch-server').onchange = () => {
+    updateTarget();
+    // A cwd in the input belongs to the previously selected server — on a
+    // different remote it likely does not exist. Clear it so the browse /
+    // suggester repopulates against the new server instead of showing a stale
+    // path. applyPreset/applyRecent set server+cwd together programmatically
+    // (no change event), so loading a preset/recent keeps its cwd.
+    setVal('launch-cwd', '');
+  };
   el<HTMLButtonElement>('launch-browse').onclick = () =>
     deps.bus.emit('launch:select-cwd', { targetInput: 'launch-cwd', serverId: val('launch-server') });
   el<HTMLButtonElement>('launch-create').onclick = () => {

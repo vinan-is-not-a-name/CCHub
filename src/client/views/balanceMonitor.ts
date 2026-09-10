@@ -77,9 +77,15 @@ export function mountBalanceMonitor(deps: AppDeps): void {
       return;
     }
     if (msg.type !== 'balance.result' || msg.requestId !== inFlightRequestId) return;
-    inFlightRequestId = null;
+    // Two frames per request: `final:false` carries the process-wide cache
+    // (rendered immediately, stale values with their age), `final:true` the
+    // fresh probe. Only the final frame ends the in-flight state, so the
+    // "refreshing" label stays up across the cached frame.
     sites = msg.sites;
-    lastProbed = Date.now();
+    if (msg.final !== false) {
+      inFlightRequestId = null;
+      lastProbed = Date.now();
+    }
     updatePill();
     if (hoverOpen) renderDropdown();
   });
@@ -211,16 +217,42 @@ function makeCell(text: string, cls: string, extraCls?: string): HTMLElement {
   return cell;
 }
 
-/** Success → "$50.00" / "¥18.46" per currency; unsupported / failed → '—'
- * with a hover-explained reason so the row stays scannable. */
+/** Success → "$50.00" / "¥18.46" per currency; failed → '—' with the reason
+ * in a hover-explained `title`. Stale rows (failed this round, showing the
+ * previous balance) append the age of the stale value so the user knows it's
+ * not fresh, e.g. "$50.00 (5 min ago)". */
 function balanceText(site: BalanceSiteView): string {
-  if (site.remain !== null) return fmtMoney(site.remain, site.currency);
+  if (site.remain !== null) {
+    const text = fmtMoney(site.remain, site.currency);
+    if (site.stale) {
+      const ago = relativeAge(site.at);
+      return `${text} (${ago})`;
+    }
+    return text;
+  }
+  // 'pending' = the cached first frame, probe still running for this site.
+  if (site.error === 'pending') return '…';
   return site.error === 'unsupported' ? t('balance.unsupported') : t('balance.error').replace('{error}', site.error ?? '?');
 }
 
+/** Human-readable age from an epoch ms, e.g. "5 min ago", "1h ago", "2d ago",
+ * "just now". Matches the format the topbar dropdown uses. */
+function relativeAge(at: number): string {
+  const diff = Date.now() - at;
+  if (diff < 60_000) return t('balance.justNow');
+  const min = Math.floor(diff / 60_000);
+  if (min < 60) return t('balance.minAgo').replace('{n}', String(min));
+  const h = Math.floor(min / 60);
+  if (h < 24) return t('balance.hourAgo').replace('{n}', String(h));
+  const d = Math.floor(h / 24);
+  return t('balance.dayAgo').replace('{n}', String(d));
+}
+
 /** Colour the balance cell by health: red when the site failed or reported
- * zero/near-zero remaining, amber when low, plain otherwise. */
+ * zero/near-zero remaining, amber when low, muted while a probe is pending,
+ * plain otherwise. */
 function balanceClass(site: BalanceSiteView): string {
+  if (site.error === 'pending') return 'bal-pending';
   if (site.remain === null) return 'bal-err';
   if (site.remain <= 5) return 'bal-err';
   if (site.remain <= 20) return 'bal-warn';

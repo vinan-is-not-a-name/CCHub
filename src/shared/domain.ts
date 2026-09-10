@@ -107,6 +107,14 @@ export interface ResolvedLaunch {
   server: ServerProfile;
   cwd: string;
   env: Record<string, string>;
+  /** The launch's LLM-profile env vars, BEFORE they were merged with the host
+   * process env — `env` above is the merged result (host env + profile
+   * overrides), so it cannot tell the two apart. To give a remote cc the
+   * profile's API settings even when its ~/.claude settings.json carries an
+   * `env` block of its own (which cc applies on top of the process env), the
+   * profile vars are re-injected as a `--settings` inline JSON env block on
+   * SSH launches. Undefined when the launch has no profile. */
+  profileEnv?: AnthropicEnv;
   resume?: string;
   condaEnv?: string;
   skipPermissions?: boolean;
