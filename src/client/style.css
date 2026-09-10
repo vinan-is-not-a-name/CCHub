@@ -754,6 +754,15 @@ html[data-layout^="cols-"] .session-rail {
   overflow: hidden;
 }
 
+/* ⚠ env-diff marker (rail tab / pane head): the coloured prefix sits inline
+   with the name, its own tooltip carries the full divergence summary. */
+.env-diff-mark {
+  color: var(--warning);
+  margin-right: 4px;
+  cursor: help;
+  font-size: 0.9em;
+}
+
 .tab-name {
   font-size: 13.5px;
   font-weight: 500;
@@ -840,6 +849,18 @@ html[data-layout^="cols-"] .session-rail {
   width: 100% !important;
   height: 100% !important;
   overflow: hidden !important;
+}
+
+/* Terminal cursor: xterm ships `.xterm { cursor: text }`, and the
+   Windows 11 default pointer scheme is white — a white I-beam has no
+   outline, so on the near-white terminal canvas (OneHalfLight & co.) it
+   vanishes, while the system arrow stays visible (it carries a thin dark
+   outline). Use the plain system arrow instead of a custom-drawn I-beam:
+   the terminal's text selection still works, just without a "text cursor"
+   look, and the area reads consistent with the rest of the chrome. */
+.xterm,
+.xterm.enable-mouse-events {
+  cursor: default;
 }
 
 .xterm-viewport {

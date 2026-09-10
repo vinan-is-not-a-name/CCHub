@@ -11,6 +11,7 @@ import type {
   PresetWriteRequest,
   ProfileWriteRequest,
   ProxyWriteRequest,
+  RemoteEnvDiff,
   SafeConfigSnapshot,
   ServerWriteRequest,
   TerminalSnapshot,
@@ -141,6 +142,12 @@ export type ServerMessage =
   // index — see `client/views/imageLinks.ts` for the contract.
   | { type: 'image.fed'; id: string; imageIndex: number }
   | { type: 'notify.hook'; id: string; kind: string }
+  // Remote-session env divergence (see RemoteEnvDiff): fired once shortly
+  // after a SSH session starts when the env cc-remote's spawn sees differs
+  // from an interactive SSH login on the same host — different claude
+  // binary, missing env vars/PATH dirs. Never fired when the environments
+  // match; either way it is informational, never a session error.
+  | { type: 'session.envdiff'; sessionId: string; diff: RemoteEnvDiff }
   | { type: 'session.created'; session: SessionInfo }
   | { type: 'session.attached'; session: SessionInfo; snapshot?: TerminalSnapshot }
   | { type: 'session.destroyed'; id: string }

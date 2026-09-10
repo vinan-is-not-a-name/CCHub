@@ -171,6 +171,36 @@ test.describe('messageRouter — output and state', () => {
   });
 });
 
+test.describe('messageRouter — session.envdiff', () => {
+  test('stores the diff on the session', () => {
+    const store = makeStore();
+    store.addSession('a', session('a'));
+    const route = makeMessageRouter(
+      { conn: { send: () => {} }, store } as unknown as AppDeps,
+      spyAttach().ctrl,
+      () => {},
+    );
+    const diff = {
+      claude: { sessionPath: '/usr/local/bin/claude', interactivePath: '/h/.npm-global/bin/claude', sessionVersion: '2.1.148', interactiveVersion: '2.1.246' },
+      missingKeys: ['VLM_API_KEY'],
+      missingPathDirs: ['/home/czn/.npm-global/bin'],
+    };
+    route({ type: 'session.envdiff', sessionId: 'a', diff } as ServerMessage);
+    expect(store.get().sessions.get('a')?.envDiff).toEqual(diff);
+  });
+
+  test('an unknown session id is ignored', () => {
+    const store = makeStore();
+    const route = makeMessageRouter(
+      { conn: { send: () => {} }, store } as unknown as AppDeps,
+      spyAttach().ctrl,
+      () => {},
+    );
+    route({ type: 'session.envdiff', sessionId: 'nope', diff: { claude: null, missingKeys: ['X'], missingPathDirs: [] } } as ServerMessage);
+    expect(store.get().sessions.size).toBe(0);
+  });
+});
+
 test.describe('messageRouter — hook notifications', () => {
   test('routes hook kinds through the notify handle', () => {
     const fired: Array<{ id: string; kind: string }> = [];

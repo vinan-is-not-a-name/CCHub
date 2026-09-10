@@ -102,6 +102,7 @@ export function makeAttachController(deps: AppDeps): AttachController {
         state: s.info.state,
         tooltip: sessionTooltip(s.info, label),
         info: s.info,
+        envDiff: s.envDiff,
         onReveal: (anchor) => revealFor(s.info, anchor),
       });
       if (fit && (grid || active)) requestAnimationFrame(() => s.terminal.fit.fit());
@@ -175,6 +176,7 @@ export function makeAttachController(deps: AppDeps): AttachController {
         label,
         tooltip: sessionTooltip(session.info, label),
         info: session.info,
+        envDiff: session.envDiff,
         onReveal: (anchor) => revealFor(session.info, anchor),
       });
       session.pane.classList.toggle('is-active', id === s.activeId);

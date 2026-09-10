@@ -1,4 +1,5 @@
 import type { SessionInfo } from '../../shared/protocol.js';
+import type { RemoteEnvDiff } from '../../shared/dto.js';
 import { t } from '../i18n.js';
 
 /** Human-readable tab/pane label for a session. Primary handle is the
@@ -59,6 +60,60 @@ export function sessionLabelParts(info: SessionInfo, revealable: boolean): Sessi
     return [{ kind: 'text', text: `${name} (` }, detail, { kind: 'text', text: ')' }];
   }
   return [{ kind: 'text', text: name }];
+}
+
+/** Human-readable summary of a session's env divergence, for the ⚠ marker's
+ * tooltip. Pure; keys/missing dirs are capped at a few lines so the hover
+ * stays scannable, with an "…and N more" tail when the list is long. */
+export function envDiffTooltip(diff: RemoteEnvDiff | null | undefined): string {
+  if (!diff) return '';
+  const lines: string[] = [t('envdiff.title')];
+  if (diff.claude) {
+    lines.push(
+      t('envdiff.claude')
+        .replace('{sessionVersion}', diff.claude.sessionVersion ?? '?')
+        .replace('{interactiveVersion}', diff.claude.interactiveVersion ?? '?')
+        .replace('{sessionPath}', diff.claude.sessionPath ?? '?')
+        .replace('{interactivePath}', diff.claude.interactivePath ?? '?'),
+    );
+  }
+  if (diff.missingKeys.length > 0) {
+    const shown = diff.missingKeys.slice(0, 6).join(', ');
+    const tail = diff.missingKeys.length > 6
+      ? t('envdiff.andMore').replace('{n}', String(diff.missingKeys.length - 6))
+      : '';
+    lines.push(t('envdiff.missingKeys').replace('{list}', shown + (tail ? ` · ${tail}` : '')));
+  }
+  if (diff.missingPathDirs.length > 0) {
+    const shown = diff.missingPathDirs.slice(0, 4).join(', ');
+    const tail = diff.missingPathDirs.length > 4
+      ? t('envdiff.andMore').replace('{n}', String(diff.missingPathDirs.length - 4))
+      : '';
+    lines.push(t('envdiff.missingPath').replace('{list}', shown + (tail ? ` · ${tail}` : '')));
+  }
+  return lines.join('\n');
+}
+
+/** Sync the ⚠ env-diff marker into a label element (rail tab name or pane
+ * name). Idempotent: callers render the label text first (which clears
+ * children), then this re-inserts the marker when a diff exists. The
+ * tooltip carries the full summary; remove the marker by passing nullish. */
+export function syncEnvDiffMark(el: HTMLElement, diff: RemoteEnvDiff | null | undefined): void {
+  const existing = el.querySelector('.env-diff-mark');
+  if (!diff) {
+    existing?.remove();
+    return;
+  }
+  const tip = envDiffTooltip(diff);
+  if (existing) {
+    (existing as HTMLElement).title = tip;
+    return;
+  }
+  const mark = document.createElement('span');
+  mark.className = 'env-diff-mark';
+  mark.textContent = '⚠';
+  mark.title = tip;
+  el.insertBefore(mark, el.firstChild);
 }
 
 /** Fill `el` with the session's display name. Textually identical to
