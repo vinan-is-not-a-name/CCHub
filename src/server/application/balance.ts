@@ -16,25 +16,31 @@ import {
   querySiteBalance,
 } from '../infrastructure/transport/balanceProbe.js';
 
-/** One distinct relay site after grouping. `authToken` stays server-side. */
+/** One distinct relay site after grouping. `credential` (auth token OR api
+ * key) stays server-side. */
 export interface BalanceSiteGroup {
   baseUrl: string;
-  authToken: string;
+  credential: string;
   presetNames: string[];
 }
 
-/** Group every profile that carries a baseUrl + authToken by the
- * (normalized baseUrl, authToken) pair, preserving config order per group. */
+/** Group every profile that carries a baseUrl plus SOME credential by the
+ * (normalized baseUrl, credential) pair, preserving config order per group.
+ *
+ * Either secret counts: a profile may hold ANTHROPIC_AUTH_TOKEN (bearer) or
+ * ANTHROPIC_API_KEY (x-api-key) — an API-key-only profile is a normal setup
+ * for Anthropic-native gateways, and requiring a token silently dropped those
+ * sites from the dropdown entirely. */
 export function groupBalanceSites(profiles: AnthropicEnvProfile[]): BalanceSiteGroup[] {
   const byKey = new Map<string, BalanceSiteGroup>();
   for (const profile of profiles) {
     const baseUrl = profile.env.ANTHROPIC_BASE_URL;
-    const authToken = profile.env.ANTHROPIC_AUTH_TOKEN;
-    if (!baseUrl || !authToken) continue;
-    const key = normalizeBaseUrl(baseUrl) + '|' + authToken;
+    const credential = profile.env.ANTHROPIC_AUTH_TOKEN || profile.env.ANTHROPIC_API_KEY;
+    if (!baseUrl || !credential) continue;
+    const key = normalizeBaseUrl(baseUrl) + '|' + credential;
     let group = byKey.get(key);
     if (!group) {
-      group = { baseUrl: normalizeBaseUrl(baseUrl), authToken, presetNames: [] };
+      group = { baseUrl: normalizeBaseUrl(baseUrl), credential, presetNames: [] };
       byKey.set(key, group);
     }
     group.presetNames.push(profile.name);
@@ -53,13 +59,38 @@ export const BALANCE_CONCURRENCY = 4;
 
 const EMPTY_RAW: BalanceRaw = { limit: null, used: null, remain: null, currency: 'USD' };
 
+/** Last-known balance for one distinct site. Keyed by the (normalized
+ * baseUrl, credential) pair — the SAME site probed with DIFFERENT keys is two
+ * different groups and must not share a stale value (that was the
+ * "same host, different key pollution" bug: a failing key A showed key B's
+ * balance because the cache was keyed by baseUrl alone). */
+export interface BalanceSiteLast {
+  remain: number | null;
+  limit: number | null;
+  used: number | null;
+  currency: string;
+  at: number;
+}
+
+export type BalanceLastCache = Map<string, BalanceSiteLast>;
+
+const groupKey = (g: BalanceSiteGroup) => normalizeBaseUrl(g.baseUrl) + '|' + g.credential;
+
 /** Probe every distinct site, bounded concurrency. A failing site becomes a
  * row with `error` rather than taking the whole response down — one dead
  * relay must not blank the panel. Official Anthropic endpoints are skipped
- * with error 'unsupported' (they have no balance API). */
+ * with error 'unsupported' (they have no balance API).
+ *
+ * `prev` is the previous successful results keyed by baseUrl — when a site
+ * fails this round, its row keeps the old `remain` and is marked `stale`
+ * (plus the failure `error`) instead of showing a blank "failed" cell, so
+ * an intermittent relay never blanks a known balance. Sites that newly
+ * appear (no prev entry) simply fail as before. */
 export async function probeAllSites(
   groups: BalanceSiteGroup[],
   concurrency = BALANCE_CONCURRENCY,
+  prev: BalanceLastCache = new Map(),
+  query: typeof querySiteBalance = querySiteBalance,
 ): Promise<BalanceSiteView[]> {
   const at = Date.now();
   const views: BalanceSiteView[] = new Array(groups.length);
@@ -74,20 +105,64 @@ export async function probeAllSites(
         continue;
       }
       try {
-        const raw = await querySiteBalance({ baseUrl: group.baseUrl, authToken: group.authToken });
-        views[i] = toView(group, raw, at);
+        const raw = await query({ baseUrl: group.baseUrl, credential: group.credential });
+        const view = toView(group, raw, at);
+        prev.set(groupKey(group), lastOf(view));
+        views[i] = view;
       } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        // A 404 / non-JSON answer means "this host has no balance API we know
+        // of" — surface that as 'unsupported' so the panel says so plainly
+        // instead of printing an HTML error page. Timeouts stay raw: those are
+        // transient and the stale value (if any) is the useful thing to show.
+        const unsupported = /^4\d\d/.test(message) || message.includes('non-JSON');
         views[i] = toView(
           group,
           EMPTY_RAW,
           at,
-          error instanceof Error ? error.message : String(error),
+          unsupported ? 'unsupported' : message,
+          prev.get(groupKey(group)),
         );
       }
     }
   };
   await Promise.all(Array.from({ length: Math.min(concurrency, Math.max(1, groups.length)) }, worker));
   return sortBalanceSites(views);
+}
+
+function lastOf(view: BalanceSiteView): BalanceSiteLast {
+  return { remain: view.remain, limit: view.limit, used: view.used, currency: view.currency, at: view.at };
+}
+
+/** Views built from the cache alone, for the immediate frame a fresh client
+ * gets while the real probe runs. Cached sites show their last-known balance
+ * marked stale (with the age the client renders); uncached sites carry
+ * `error: 'pending'` so the row reads "…" instead of a failure. */
+export function cachedViews(groups: BalanceSiteGroup[], cache: BalanceLastCache, at: number): BalanceSiteView[] {
+  return groups.map((group) => {
+    const base = {
+      baseUrl: group.baseUrl,
+      keyPreview: previewKey(group.credential),
+      presetNames: group.presetNames,
+      limit: null as number | null,
+      used: null as number | null,
+      remain: null as number | null,
+      currency: 'USD',
+    };
+    const last = cache.get(groupKey(group));
+    if (last && last.remain != null) {
+      return {
+        ...base,
+        remain: last.remain,
+        limit: last.limit,
+        used: last.used,
+        currency: last.currency,
+        stale: true,
+        at: last.at,
+      };
+    }
+    return { ...base, error: 'pending', at };
+  });
 }
 
 /** Remaining balance descending; failures (remain null) sink to the bottom,
@@ -101,16 +176,23 @@ export function sortBalanceSites(sites: BalanceSiteView[]): BalanceSiteView[] {
   });
 }
 
-function toView(group: BalanceSiteGroup, raw: BalanceRaw, at: number, error?: string): BalanceSiteView {
+function toView(group: BalanceSiteGroup, raw: BalanceRaw, at: number, error?: string, last?: BalanceSiteLast): BalanceSiteView {
+  // A failing site with a previous successful balance keeps showing the old
+  // numbers, marked stale (the error rides in `error` for the hover/tooltip).
+  // The probe time (`at`) stays at the PREVIOUS successful probe so the
+  // client can show "5 min ago" against the stale value.
+  const stale = error !== undefined && last?.remain != null;
   return {
     baseUrl: group.baseUrl,
-    keyPreview: previewKey(group.authToken),
+    keyPreview: previewKey(group.credential),
     presetNames: group.presetNames,
-    remain: raw.remain,
-    limit: raw.limit,
-    used: raw.used,
-    currency: raw.currency,
+    remain: stale ? last!.remain : raw.remain,
+    limit: stale ? last!.limit : raw.limit,
+    used: stale ? last!.used : raw.used,
+    currency: stale ? last!.currency : raw.currency,
     ...(error ? { error } : {}),
-    at,
+    ...(stale ? { stale: true } : {}),
+    ...(raw.quota && !stale ? { quota: raw.quota } : {}),
+    at: stale ? last!.at : at,
   };
 }

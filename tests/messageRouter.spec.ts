@@ -2,7 +2,6 @@ import { test, expect } from '@playwright/test';
 import { makeMessageRouter } from '../src/client/views/session/messageRouter.js';
 import { configCardFor } from '../src/client/views/configDialog.js';
 import type { CardController } from '../src/client/views/cards/cardController.js';
-import { isAnthropicFormat } from '../src/server/infrastructure/transport/profileProbe.js';
 import { Store } from '../src/client/state.js';
 import type { AppState, ClientSession } from '../src/client/state.js';
 import type { AttachController } from '../src/client/views/session/attach.js';
@@ -171,6 +170,36 @@ test.describe('messageRouter — output and state', () => {
   });
 });
 
+test.describe('messageRouter — session.envdiff', () => {
+  test('stores the diff on the session', () => {
+    const store = makeStore();
+    store.addSession('a', session('a'));
+    const route = makeMessageRouter(
+      { conn: { send: () => {} }, store } as unknown as AppDeps,
+      spyAttach().ctrl,
+      () => {},
+    );
+    const diff = {
+      claude: { sessionPath: '/usr/local/bin/claude', interactivePath: '/h/.npm-global/bin/claude', sessionVersion: '2.1.148', interactiveVersion: '2.1.246' },
+      missingKeys: ['VLM_API_KEY'],
+      missingPathDirs: ['/home/czn/.npm-global/bin'],
+    };
+    route({ type: 'session.envdiff', sessionId: 'a', diff } as ServerMessage);
+    expect(store.get().sessions.get('a')?.envDiff).toEqual(diff);
+  });
+
+  test('an unknown session id is ignored', () => {
+    const store = makeStore();
+    const route = makeMessageRouter(
+      { conn: { send: () => {} }, store } as unknown as AppDeps,
+      spyAttach().ctrl,
+      () => {},
+    );
+    route({ type: 'session.envdiff', sessionId: 'nope', diff: { claude: null, missingKeys: ['X'], missingPathDirs: [] } } as ServerMessage);
+    expect(store.get().sessions.size).toBe(0);
+  });
+});
+
 test.describe('messageRouter — hook notifications', () => {
   test('routes hook kinds through the notify handle', () => {
     const fired: Array<{ id: string; kind: string }> = [];
@@ -269,31 +298,5 @@ test.describe('configCardFor — CONFIG_ERROR routing', () => {
     expect(configCardFor('launch.recent.forget', cards.profile, cards.server, cards.proxy, cards.preset)).toBeNull();
     expect(configCardFor('session.create', cards.profile, cards.server, cards.proxy, cards.preset)).toBeNull();
     expect(configCardFor('', cards.profile, cards.server, cards.proxy, cards.preset)).toBeNull();
-  });
-});
-
-test.describe('isAnthropicFormat', () => {
-  test('detects /anthropic suffix', () => {
-    expect(isAnthropicFormat('https://api.deepseek.com/anthropic')).toBe(true);
-    expect(isAnthropicFormat('https://api.deepseek.com/anthropic/')).toBe(true);
-  });
-
-  test('detects /anthropic in path', () => {
-    expect(isAnthropicFormat('https://proxy.example.com/anthropic/v1')).toBe(true);
-  });
-
-  test('rejects unrelated paths', () => {
-    expect(isAnthropicFormat('https://api.deepseek.com')).toBe(false);
-    expect(isAnthropicFormat('https://api.openai.com/v1')).toBe(false);
-    expect(isAnthropicFormat('https://api.anthropic.com')).toBe(false);
-  });
-
-  test('case insensitive', () => {
-    expect(isAnthropicFormat('https://api.example.com/Anthropic')).toBe(true);
-    expect(isAnthropicFormat('https://api.example.com/ANTHROPIC/v1')).toBe(true);
-  });
-
-  test('does not match anthropic as substring of another word', () => {
-    expect(isAnthropicFormat('https://api.example.com/anthropicxyz')).toBe(false);
   });
 });

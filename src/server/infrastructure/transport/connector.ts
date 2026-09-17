@@ -26,6 +26,9 @@ export interface ConnectorSpawnArgs {
   proxy?: ProxyTunnel;
   /** SSH reverse tunnel for Claude Code hook POSTs back to cc-remote. */
   hookTunnel?: ProxyTunnel;
+  /** SSH reverse tunnel making a profile's loopback endpoint reachable from the
+   * remote host (see ResolvedLaunch.loopbackTunnel). */
+  loopbackTunnel?: ProxyTunnel;
 }
 
 export interface ConnectorChannel extends EventEmitter {
@@ -154,6 +157,7 @@ export class SshConnector implements Connector {
       setupReverseTunnels(conn, [
         ...(args.proxy ? [{ name: 'proxy', tunnel: args.proxy }] : []),
         ...(args.hookTunnel ? [{ name: 'hook', tunnel: args.hookTunnel }] : []),
+        ...(args.loopbackTunnel ? [{ name: 'llm endpoint', tunnel: args.loopbackTunnel }] : []),
       ], channel);
       conn.exec(wrapped, { env: buildRemoteEnv(args.env), pty: { term: 'xterm-256color', cols: args.cols, rows: args.rows } }, (err, stream) => {
         if (err) {

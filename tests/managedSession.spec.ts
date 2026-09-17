@@ -6,6 +6,7 @@ import type { ShellAdapter } from '../src/server/infrastructure/shell/shellAdapt
 import type { CliAdapter, CliLaunchSpec, CliRecoveryAction } from '../src/server/domain/session/cliAdapter.js';
 import type { McpProvisioner, SessionMcpGrant } from '../src/server/infrastructure/mcp/sessionMcpConfig.js';
 import type { HookProvisioner, SessionHookGrant } from '../src/server/infrastructure/hook/hookProvisioner.js';
+import type { SettingsProvisioner, SessionSettingsGrant } from '../src/server/infrastructure/settings/sessionSettings.js';
 import type { ResolvedLaunch } from '../src/shared/protocol.js';
 
 // ManagedSession is the server's core orchestrator and the highest-value test
@@ -41,9 +42,18 @@ const fakeShell: ShellAdapter = {
 };
 
 class FakeCli implements CliAdapter {
+  /** Last spec handed to buildCommand — lets tests assert on what the session
+   * passes to the CLI (apiEnv in particular), which the argv alone doesn't
+   * show because this fake doesn't turn it into --settings. */
+  lastSpec?: CliLaunchSpec;
   buildCommand(l: CliLaunchSpec): string[] {
+    this.lastSpec = l;
     const argv = l.resume === 'continue' ? ['claude', '-c'] : ['claude'];
     if (l.mcpConfigPath) argv.push('--mcp-config', l.mcpConfigPath);
+    // Mirrors the real adapter's file carrier, so a test can see the path land
+    // in the spawned command. The inline (JSON string) form is deliberately
+    // NOT reproduced — nothing here should depend on its exact rendering.
+    if (l.settings?.path) argv.push('--settings', l.settings.path);
     return argv;
   }
   isAwaitingApproval(): boolean { return false; }
@@ -110,10 +120,11 @@ class FakeHookProvisioner implements HookProvisioner {
 // net test can trigger it without adding a multi-minute wait.
 const TINY = { inputSilenceMs: 10, idleAfterMs: 40, pasteSubmitMs: 10, recoveryWindowMs: 100, hardIdleTimeoutMs: 400 };
 
-function launch(resume?: string): ResolvedLaunch {
+function launch(resume?: string, over: Partial<ResolvedLaunch> = {}): ResolvedLaunch {
   return {
     server: { id: 's', name: 'srv', kind: 'local', os: 'linux', createdAt: 0, updatedAt: 0 },
     cwd: '/tmp', env: {}, resume, serverName: 'srv', label: 'test-label',
+    ...over,
   };
 }
 
@@ -123,11 +134,12 @@ function ctx(over: Partial<SessionContext> = {}): SessionContext {
 
 function makeSession(resume?: string) {
   const connector = new FakeConnector();
+  const cli = new FakeCli();
   const session = new ManagedSession(
-    ctx({ launch: launch(resume) }), connector as unknown as Connector, fakeShell, new FakeCli(),
+    ctx({ launch: launch(resume) }), connector as unknown as Connector, fakeShell, cli,
     120, 40, 64 * 1024, TINY,
   );
-  return { session, connector };
+  return { session, connector, cli };
 }
 
 test.describe('ManagedSession — channel wiring', () => {
@@ -152,6 +164,71 @@ test.describe('ManagedSession — channel wiring', () => {
     expect(info.cwd).toBe('/tmp');
     expect(info.target).toBe('local');
     expect(info.label).toBe('test-label');
+  });
+});
+
+// cc applies a settings.json `env` block ON TOP of the process env, so a
+// profile exported only through the PTY env loses to whatever the host's
+// ~/.claude/settings.json carries. That file is not the user's to control:
+// cc-switch rewrites it with the active provider's env on every provider
+// switch, which pinned every LOCAL session to that provider while cchub's UI
+// still showed the chosen profile — the reported "no matter which preset or
+// relay, everything 400s". Handing the profile env to cc as --settings is what
+// makes the profile authoritative again, and it has to happen on local
+// sessions, not just SSH ones.
+test.describe('ManagedSession — profile env outranks settings.json', () => {
+  const profileEnv = {
+    ANTHROPIC_BASE_URL: 'https://api.ikuncode.cc',
+    ANTHROPIC_AUTH_TOKEN: 'sk-secret',
+    ANTHROPIC_MODEL: 'm',
+  };
+  const sshServer = {
+    id: 'r', name: 'remote', kind: 'ssh' as const, os: 'linux' as const, createdAt: 0, updatedAt: 0,
+    host: '10.0.0.1', port: 22, username: 'u', auth: { method: 'password' as const },
+  };
+
+  function makeSessionWith(over: Partial<ResolvedLaunch>, ctxOver: Partial<SessionContext> = {}) {
+    const connector = new FakeConnector();
+    const cli = new FakeCli();
+    const session = new ManagedSession(
+      { id: 'fixed-id', launch: launch(undefined, over), ...ctxOver },
+      connector as unknown as Connector, fakeShell, cli, 120, 40, 64 * 1024, TINY,
+    );
+    return { session, connector, cli };
+  }
+
+  test('a LOCAL session hands the payload to the CLI for --settings', () => {
+    const { cli } = makeSessionWith({ profileEnv });
+    expect(cli.lastSpec?.settings?.payload).toEqual({ env: profileEnv });
+  });
+
+  test('an SSH session does too', () => {
+    const { cli } = makeSessionWith({ server: sshServer, profileEnv });
+    expect(cli.lastSpec?.settings?.payload).toEqual({ env: profileEnv });
+  });
+
+  test('a provisioned file wins over inlining (the Windows local carrier)', () => {
+    // SessionManager writes the payload to a file for local sessions because
+    // inline JSON cannot survive cmd → claude.cmd → node there. The session
+    // must pass the path and NOT re-inline the payload alongside it.
+    const { cli } = makeSessionWith(
+      { profileEnv },
+      { settings: { path: 'C:\\Temp\\cchub-settings-fixed-id.json' } },
+    );
+    expect(cli.lastSpec?.settings?.path).toBe('C:\\Temp\\cchub-settings-fixed-id.json');
+    expect(cli.lastSpec?.settings?.payload).toEqual({ env: profileEnv });
+  });
+
+  test('the resolved WebFetch skip rides in the payload', () => {
+    const { cli } = makeSessionWith({ profileEnv, skipWebFetchPreflight: true });
+    expect(cli.lastSpec?.settings?.payload).toEqual({ env: profileEnv, skipWebFetchPreflight: true });
+  });
+
+  test('a launch with nothing to say carries an empty payload', () => {
+    // The adapter reads an empty payload as "add no --settings at all", so this
+    // is what keeps the flag out of every argv that has nothing to carry.
+    expect(makeSessionWith({}).cli.lastSpec?.settings?.payload).toEqual({});
+    expect(makeSessionWith({ profileEnv: {} }).cli.lastSpec?.settings?.payload).toEqual({});
   });
 });
 
@@ -837,5 +914,150 @@ test.describe('SessionManager — MCP provisioning + per-session isolation', () 
     expect(prov.cleaned).toHaveLength(0);       // fallback exit is NOT a final exit
     connector.channels[1].emit('exit', 0);      // now the real exit
     expect(prov.cleaned).toHaveLength(1);
+  });
+});
+
+// The --settings file exists because inline JSON cannot survive the Windows
+// cmd → claude.cmd → node chain (see sessionSettings.ts). These cover the
+// manager's half: who gets a file, what goes in it, and when it goes away.
+test.describe('SessionManager — settings-file provisioning', () => {
+  class FakeSettingsProvisioner implements SettingsProvisioner {
+    provisioned: Array<{ id: string; payload: Record<string, unknown> }> = [];
+    cleaned: string[] = [];
+    provision(id: string, payload: Record<string, unknown>): SessionSettingsGrant {
+      this.provisioned.push({ id, payload });
+      return { path: `/tmp/settings-${id}.json` };
+    }
+    cleanup(id: string): void { this.cleaned.push(id); }
+  }
+
+  function makeManager(prov: SettingsProvisioner) {
+    const connector = new FakeConnector();
+    const manager = new SessionManager({
+      connectorFor: () => connector as unknown as Connector,
+      shellFor: () => fakeShell,
+      cliAdapter: new FakeCli(),
+      timing: TINY,
+      settingsProvisioner: prov,
+    });
+    return { connector, manager };
+  }
+
+  const profileEnv = { ANTHROPIC_BASE_URL: 'https://api.ikuncode.cc', ANTHROPIC_AUTH_TOKEN: 'sk-secret' };
+  const sshServer = {
+    id: 'r', name: 'remote', kind: 'ssh' as const, os: 'linux' as const, createdAt: 0, updatedAt: 0,
+    host: '10.0.0.1', port: 22, username: 'u', auth: { method: 'password' as const },
+  };
+
+  test('a LOCAL session gets the payload written and the path threaded into the command', () => {
+    const prov = new FakeSettingsProvisioner();
+    const { manager, connector } = makeManager(prov);
+    const s = manager.create(launch(undefined, { profileEnv, skipWebFetchPreflight: true }));
+    expect(prov.provisioned).toEqual([
+      { id: s.id, payload: { env: profileEnv, skipWebFetchPreflight: true } },
+    ]);
+    expect(connector.spawns[0].command).toContain(`/tmp/settings-${s.id}.json`);
+  });
+
+  test('an SSH session gets no file — it can carry the inline form', () => {
+    // Inlining there also keeps the API key off the remote host's disk, which
+    // is the whole reason the two carriers differ.
+    const prov = new FakeSettingsProvisioner();
+    const { manager, connector } = makeManager(prov);
+    manager.create(launch(undefined, { server: sshServer, profileEnv }));
+    expect(prov.provisioned).toHaveLength(0);
+    expect(connector.spawns[0].command).not.toContain('--settings');
+  });
+
+  test('a launch with nothing to say writes no file', () => {
+    // An empty --settings would be noise in every argv; the adapter reads the
+    // absent grant as "add no flag".
+    const prov = new FakeSettingsProvisioner();
+    const { manager, connector } = makeManager(prov);
+    manager.create(launch());
+    expect(prov.provisioned).toHaveLength(0);
+    expect(connector.spawns[0].command).not.toContain('--settings');
+  });
+
+  // The loopback tunnel is what lets a profile pointing at 127.0.0.1 work from
+  // a remote host. The session must hand it to the connector; nothing else on
+  // the launch path carries it.
+  test('a loopback tunnel reaches the connector spawn', () => {
+    const connector = new FakeConnector();
+    const manager = new SessionManager({
+      connectorFor: () => connector as unknown as Connector,
+      shellFor: () => fakeShell,
+      cliAdapter: new FakeCli(),
+      timing: TINY,
+    });
+    manager.create({
+      ...launch(),
+      server: {
+        id: 'r', name: 'remote', kind: 'ssh', os: 'linux', createdAt: 0, updatedAt: 0,
+        host: '10.0.0.1', port: 22, username: 'u', auth: { method: 'password' },
+      },
+      loopbackTunnel: { bindPort: 15721, host: '127.0.0.1', port: 15721 },
+    });
+    expect(connector.spawns[0].loopbackTunnel).toEqual({ bindPort: 15721, host: '127.0.0.1', port: 15721 });
+  });
+
+  // Ctrl+G opens the prompt in an external editor. A host that sets neither
+  // EDITOR nor VISUAL (the measured host sets neither, in any profile file) leaves claude
+  // with nothing to launch: it prints "Save and close editor to continue..."
+  // and waits forever. The launch fills that hole in the session's own shell.
+  test.describe('editor fallback', () => {
+    function makeSshManager(serverOs: 'linux' | 'windows') {
+      const connector = new FakeConnector();
+      const manager = new SessionManager({
+        connectorFor: () => connector as unknown as Connector,
+        shellFor: () => fakeShell,
+        cliAdapter: new FakeCli(),
+        timing: TINY,
+      });
+      manager.create({
+        ...launch(),
+        server: {
+          id: 'r', name: 'remote', kind: 'ssh', os: serverOs, createdAt: 0, updatedAt: 0,
+          host: '10.0.0.1', port: 22, username: 'u', auth: { method: 'password' },
+        },
+      });
+      return connector.spawns[0].command;
+    }
+
+    test('an SSH session gets a ${VAR:-…} editor fallback in its login shell', () => {
+      const command = makeSshManager('linux');
+      expect(command).toContain('export EDITOR="${EDITOR:-$(command -v vim || command -v vi || echo vi)}"');
+      expect(command).toContain('export VISUAL="${VISUAL:-$EDITOR}"');
+    });
+
+    test('a LOCAL session does not get it — the local default editor already works', () => {
+      const connector = new FakeConnector();
+      const manager = new SessionManager({
+        connectorFor: () => connector as unknown as Connector,
+        shellFor: () => fakeShell,
+        cliAdapter: new FakeCli(),
+        timing: TINY,
+      });
+      manager.create(launch());
+      expect(connector.spawns[0].command).not.toContain('EDITOR');
+    });
+
+    test('a Windows SSH target does not get it — there is no ${VAR:-…} in cmd.exe', () => {
+      expect(makeSshManager('windows')).not.toContain('EDITOR');
+    });
+  });
+
+  test('cleans the file up exactly once, on final exit only', () => {
+    const prov = new FakeSettingsProvisioner();
+    const { manager, connector } = makeManager(prov);
+    const s = manager.create(launch('continue', { profileEnv }));
+    expect(prov.cleaned).toHaveLength(0);
+    // Resume-fallback respawn reuses the same id + file, so it must NOT clean.
+    connector.channels[0].emit('data', 'NOCONV');
+    connector.channels[0].emit('exit', null);
+    expect(prov.cleaned).toHaveLength(0);
+    expect(connector.channels).toHaveLength(2);
+    connector.channels[1].emit('exit', 0);
+    expect(prov.cleaned).toEqual([s.id]);
   });
 });

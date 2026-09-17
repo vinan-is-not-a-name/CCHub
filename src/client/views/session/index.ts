@@ -26,6 +26,7 @@ export function mountSessionView(deps: AppDeps, params: URLSearchParams, notify?
       condaEnv: input.condaEnv,
       resume: input.resume,
       skipPermissions: input.skipPermissions,
+      skipWebFetchPreflight: input.skipWebFetchPreflight,
       proxyId: input.proxyId,
       effort: input.effort,
     });
@@ -49,6 +50,7 @@ export function mountSessionView(deps: AppDeps, params: URLSearchParams, notify?
         resume: recent.resume ?? '',
         proxyId: recent.proxyId,
         skipPermissions: recent.skipPermissions,
+        skipWebFetchPreflight: recent.skipWebFetchPreflight,
         effort: recent.effort,
       },
     });

@@ -1,7 +1,8 @@
 import type { SessionInfo, SessionState } from '../../shared/protocol.js';
+import type { RemoteEnvDiff } from '../../shared/dto.js';
 import { createTerminal } from '../terminal.js';
 import { isGridLayout, layoutColumns, type LayoutMode } from './layout.js';
-import { renderSessionLabel, sessionLabel } from './sessionLabel.js';
+import { renderSessionLabel, sessionLabel, syncEnvDiffMark } from './sessionLabel.js';
 import { t } from '../i18n.js';
 
 export type TerminalHandle = ReturnType<typeof createTerminal>;
@@ -192,6 +193,8 @@ export function updatePaneHead(
     tooltip?: string;
     info?: SessionInfo;
     onReveal?: (anchor: HTMLElement) => void;
+    /** Remote-session env divergence — renders the ⚠ marker when set. */
+    envDiff?: RemoteEnvDiff | null;
   },
 ): void {
   const head = pane.querySelector('.pane-head');
@@ -204,6 +207,7 @@ export function updatePaneHead(
     name.textContent = opts.label;
   }
   name.setAttribute('title', opts.tooltip ?? opts.label);
+  syncEnvDiffMark(name, opts.envDiff);
 }
 
 /** Style a pane for the current layout. The pane is always a grid item in
@@ -221,6 +225,7 @@ export function placeTerminal(
     tooltip?: string;
     info?: SessionInfo;
     onReveal?: (anchor: HTMLElement) => void;
+    envDiff?: RemoteEnvDiff | null;
   },
 ): void {
   const grid = isGridLayout(opts.mode);
@@ -233,6 +238,7 @@ export function placeTerminal(
     tooltip: opts.tooltip,
     info: opts.info,
     onReveal: opts.onReveal,
+    envDiff: opts.envDiff,
   });
   const visible = grid || opts.active;
   pane.style.visibility = visible ? 'visible' : 'hidden';

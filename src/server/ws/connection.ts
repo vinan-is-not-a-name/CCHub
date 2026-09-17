@@ -1,6 +1,7 @@
 import { ManagedSession, SessionManager } from '../application/session.js';
 import { ConfigService } from '../domain/config/index.js';
 import { ClientMessage, ServerMessage, SessionTarget } from '../../shared/protocol.js';
+import { BalanceLastCache } from '../application/balance.js';
 import { dispatch } from './router.js';
 import { revealPath } from '../infrastructure/shell/revealPath.js';
 import { revealXshell, revealXftp } from '../infrastructure/shell/revealSsh.js';
@@ -51,6 +52,11 @@ export interface WsCtx {
    * by the Settings dialog's Detect button. Injected so tests can supply a
    * deterministic result without touching the real filesystem. */
   detectApps(): Promise<{ xshellPath: string | null; xftpPath: string | null; vscodePath: string | null }>;
+  /** Process-wide last-known balance cache, keyed by the (baseUrl, authToken)
+   * pair so the same host with different keys never shares a stale value.
+   * Owned by the entry point (not per connection): a page refresh or a
+   * reconnect must still see the previous balances. */
+  getRecentBalanceCache?(): BalanceLastCache;
 }
 
 interface Subscription {
@@ -65,6 +71,10 @@ interface Subscription {
 export interface HandleWsOptions {
   authToken: string;
   defaultTarget: SessionTarget;
+  /** Process-wide last-known balance cache — owned by the entry point so it
+   * survives page refreshes and reconnects (see WsCtx.getRecentBalanceCache).
+   * Absent → a throwaway per-connection map (tests). */
+  balanceCache?: BalanceLastCache;
   /** Override for the file-browser reveal side-effect. Defaults to the real
    * cross-platform `revealPath`. Tests inject a spy so no real explorer window
    * opens during CI. */
@@ -149,6 +159,9 @@ export function handleWs(ws: WsLike, manager: SessionManager, store: ConfigServi
       return targetId ? manager.get(targetId) : undefined;
     },
     reveal: opts.reveal ?? revealPath,
+    // Process-wide last-known balance cache (shared by every connection), fed
+    // into each probe so a failing site keeps its prior balance.
+    getRecentBalanceCache: () => opts.balanceCache ?? new Map(),
     // Wrap the reveal helpers so the production path is fed the exe paths
     // from appSettings + an onError callback that surfaces failures via the
     // WS protocol. Test injections stay flat 2-arg so specs don't need to

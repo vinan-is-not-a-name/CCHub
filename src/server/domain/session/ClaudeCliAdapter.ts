@@ -54,6 +54,26 @@ export class ClaudeCliAdapter implements CliAdapter {
     if (launch.mcpConfigPath) {
       argv.push('--mcp-config', launch.mcpConfigPath);
     }
+    // cc accepts either a path or a JSON string for --settings; the launch says
+    // which carrier it prepared (see CliLaunchSpec.settings). A path needs no
+    // shell quoting at all, so it is used wherever one was provisioned.
+    //
+    // Why this block exists at all: the --settings layer merges with (and
+    // overrides) every settings file while leaving the rest in force, so it is
+    // what stops a settings.json env block — a remote host's, or the local one
+    // a provider switcher rewrote — from masking the user's chosen profile.
+    // It also carries skipWebFetchPreflight, which is settings-shaped rather
+    // than a flag (cc 2.1.235 has no env var or CLI option for it) and is worth
+    // having because WebFetch's preflight posts the target hostname to
+    // api.anthropic.com/api/web/domain_info over an ABSOLUTE url: it does not
+    // follow ANTHROPIC_BASE_URL, so a session behind a gateway fails every
+    // WebFetch with "Unable to verify if domain … is safe to fetch".
+    const settings = launch.settings;
+    if (settings?.path) {
+      argv.push('--settings', settings.path);
+    } else if (settings && Object.keys(settings.payload).length > 0) {
+      argv.push('--settings', JSON.stringify(settings.payload));
+    }
     return argv;
   }
 

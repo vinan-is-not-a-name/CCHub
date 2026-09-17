@@ -89,6 +89,7 @@ export interface PresetWriteRequest {
   condaEnv?: string;
   resume?: 'continue';
   skipPermissions?: boolean;
+  skipWebFetchPreflight?: boolean;
   proxyId?: string;
   effort?: string;
 }
@@ -99,6 +100,30 @@ export interface ProxyWriteRequest {
   bindPort: number;
   host: string;
   port: number;
+}
+
+/** Divergence between the env of a cc-remote session spawn (bash -lc) and
+ * an interactive SSH login (bash -lic) on the same remote host. Produced
+ * by the server's env probe and pushed as `session.envdiff`. Anything in
+ * this structure is a "the session env may not match what you see when you
+ * SSH in directly" hint — never a session error. */
+export interface RemoteEnvDiff {
+  /** claude resolution/version divergence, or null when identical. */
+  claude: {
+    sessionPath?: string;
+    interactivePath?: string;
+    sessionVersion?: string;
+    interactiveVersion?: string;
+  } | null;
+  /** Env vars interactive login sets but the session env lacks (sorted). */
+  missingKeys: string[];
+  /** PATH directories present in interactive login, absent in the session. */
+  missingPathDirs: string[];
+  /** Absolute path of the editor cc-remote supplied for this session because
+   * the host has neither EDITOR nor VISUAL in either invocation mode. Not a
+   * divergence — a repair: without it claude's Ctrl+G has no editor to launch
+   * and hangs on "Save and close editor to continue...". */
+  injectedEditor?: string;
 }
 
 export interface DirectoryEntry {
@@ -143,11 +168,19 @@ export interface BalanceSiteView {
   /** ISO-4217 currency of the three numbers above — USD for NewAPI relays,
    * CNY for DeepSeek's official endpoint. */
   currency: string;
+  /** Per-window usage percentages for subscription gateways (opencode's
+   * rolling/weekly/monthly, GLM's 5-hour and weekly, Kimi's two windows).
+   * Rendered in place of an amount; the server sends it only when it parsed
+   * one. */
+  quota?: Array<{ window: string; percent: number }>;
   /** Human-readable failure reason. Absent on success. Set to 'unsupported'
    * for official Anthropic endpoints, which have no balance API. */
   error?: string;
   /** Server-side wall-clock of the probe, ms epoch. */
   at: number;
+  /** True when `remain` is stale — the site failed this round and the row
+   * shows the previous successful balance instead of a blank failure. */
+  stale?: boolean;
 }
 
 export interface TerminalSnapshot {

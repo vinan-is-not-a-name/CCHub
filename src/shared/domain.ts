@@ -75,6 +75,11 @@ export interface LaunchPreset {
   resume?: 'continue';
   /** Append `--dangerously-skip-permissions` to the claude launch. */
   skipPermissions?: boolean;
+  /** Skip Claude Code's WebFetch preflight. Unlike the other toggles this one
+   * defaults ON, so only an explicit opt-out is ever stored: a preset saved
+   * before this field existed has no value and resolves to true, which is what
+   * the form shows for it. */
+  skipWebFetchPreflight?: boolean;
   /** References a ProxyConfig by id. Resolved to a tunnel only for SSH targets. */
   proxyId?: string;
   /** Optional `/effort` level auto-submitted to Claude Code on session start. */
@@ -92,6 +97,9 @@ export interface LaunchOverrides {
   /** Toggle --dangerously-skip-permissions for this session. When undefined the
    * server falls back to the preset value. */
   skipPermissions?: boolean;
+  /** Toggle the WebFetch preflight skip for this session. When undefined the
+   * server falls back to the preset value, then to ON. */
+  skipWebFetchPreflight?: boolean;
   /** Proxy id for this session. When undefined the server falls back to the
    * preset value. Only meaningful for SSH targets. */
   proxyId?: string;
@@ -107,9 +115,25 @@ export interface ResolvedLaunch {
   server: ServerProfile;
   cwd: string;
   env: Record<string, string>;
+  /** The launch's LLM-profile env vars, BEFORE they were merged with the host
+   * process env — `env` above is the merged result (host env + profile
+   * overrides), so it cannot tell the two apart. To give a remote cc the
+   * profile's API settings even when its ~/.claude settings.json carries an
+   * `env` block of its own (which cc applies on top of the process env), the
+   * profile vars are re-injected as a `--settings` inline JSON env block on
+   * SSH launches. Undefined when the launch has no profile. */
+  profileEnv?: AnthropicEnv;
   resume?: string;
   condaEnv?: string;
   skipPermissions?: boolean;
+  /** SSH launches only: a reverse tunnel for a profile whose base URL points at
+   * THIS machine's loopback. The profile already says where the LLM traffic
+   * goes; on a remote host that address is the remote's own loopback, where
+   * nothing is listening, so cchub forwards the same port back here. Undefined
+   * whenever the profile's endpoint is reachable as-is. */
+  loopbackTunnel?: ProxyTunnel;
+  /** Resolved WebFetch-preflight skip: launch override ?? preset ?? ON. */
+  skipWebFetchPreflight?: boolean;
   /** SSH reverse-tunnel proxy; only set for SSH targets (resolveLaunch drops it
    * for local). The connector establishes the tunnel; the proxy env is already
    * baked into `env` by then. */
@@ -148,6 +172,10 @@ export interface RecentLaunch {
    * entries recorded before these were tracked → falls back to the preset,
    * matching the prior behavior. */
   skipPermissions?: boolean;
+  /** Effective WebFetch-preflight skip the launch used. Snapshotting matters
+   * more here than for the other toggles because the default is ON: replaying
+   * an entry that predates this field must not silently flip it off. */
+  skipWebFetchPreflight?: boolean;
   effort?: string;
   presetNameSnapshot: string;
   lastUsedAt: number;

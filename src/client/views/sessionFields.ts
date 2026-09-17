@@ -34,6 +34,7 @@ export function sessionFieldsHtml(prefix: string): string {
     <details id="${prefix}-advanced" class="advanced-section span-2">
       <summary data-i18n="preset.advanced">Advanced</summary>
       <label class="check-field"><input id="${prefix}-skip-permissions" type="checkbox"> <span data-i18n="preset.skipPermissions">Skip permission prompts (--dangerously-skip-permissions)</span></label>
+      <label class="check-field"><input id="${prefix}-skip-web-fetch-preflight" type="checkbox"> <span data-i18n="preset.skipWebFetchPreflight">Skip WebFetch preflight</span></label>
       <label class="field"><span data-i18n="preset.proxy">Proxy</span> <select id="${prefix}-proxy" data-i18n-aria-label="preset.proxy" aria-label="Proxy"></select></label>
       <label class="field"><span data-i18n="preset.effort">Effort</span> <select id="${prefix}-effort" data-i18n-aria-label="preset.effort" aria-label="Effort"><option value="">Auto</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="xhigh">XHigh</option><option value="max">Max</option></select></label>
     </details>

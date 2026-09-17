@@ -15,6 +15,7 @@ function readPresetForm(): PresetFormValues {
     conda: val('preset-conda'),
     resume: val('preset-resume'),
     skipPermissions: checked('preset-skip-permissions'),
+    skipWebFetchPreflight: checked('preset-skip-web-fetch-preflight'),
     proxyId: val('preset-proxy'),
     effort: val('preset-effort'),
   };
@@ -55,11 +56,18 @@ export function mountPresetCard(deps: AppDeps) {
       setVal('preset-conda', p.condaEnv);
       setVal('preset-resume', p.resume ?? 'continue');
       setChecked('preset-skip-permissions', p.skipPermissions === true);
+      // Defaults ON, so an absent value shows checked — that is what the launch
+      // dialog and the server will both use for this preset.
+      setChecked('preset-skip-web-fetch-preflight', p.skipWebFetchPreflight ?? true);
       setVal('preset-proxy', p.proxyId);
       setVal('preset-effort', p.effort);
       // Surface the advanced block when it carries non-default values so an
       // editor sees what's set without having to hunt for the collapsed section.
-      setAdvancedOpen(p.skipPermissions === true || Boolean(p.proxyId) || Boolean(p.effort));
+      // For the preflight toggle the NON-default value is `false`, not `true`.
+      setAdvancedOpen(
+        p.skipPermissions === true || p.skipWebFetchPreflight === false
+        || Boolean(p.proxyId) || Boolean(p.effort),
+      );
       updateTarget(p.condaEnv);
     },
     resetForm: () => {
@@ -74,6 +82,9 @@ export function mountPresetCard(deps: AppDeps) {
       setVal('preset-conda', '');
       setVal('preset-resume', 'continue');
       setChecked('preset-skip-permissions', false);
+      // A brand-new preset starts with the preflight skip ON — it is the
+      // default for new sessions.
+      setChecked('preset-skip-web-fetch-preflight', true);
       setVal('preset-proxy', '');
       setVal('preset-effort', '');
       setAdvancedOpen(false);
@@ -92,7 +103,14 @@ export function mountPresetCard(deps: AppDeps) {
     },
   });
 
-  el<HTMLSelectElement>('preset-server').onchange = () => updateTarget();
+  el<HTMLSelectElement>('preset-server').onchange = () => {
+    updateTarget();
+    // Server switched: a typed cwd belongs to the previous server and likely
+    // does not exist there. Clear it so the browse / suggester repopulates
+    // against the new server. fillForm sets server+cwd as one unit (no change
+    // event fires), so loading a preset keeps its cwd.
+    setVal('preset-cwd', '');
+  };
   el<HTMLButtonElement>('preset-browse').onclick = () =>
     deps.bus.emit('launch:select-cwd', { targetInput: 'preset-cwd', serverId: val('preset-server') });
 

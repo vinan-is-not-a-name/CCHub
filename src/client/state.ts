@@ -1,4 +1,5 @@
 import type { SafeConfigSnapshot, SessionInfo, SessionState } from '../shared/protocol.js';
+import type { RemoteEnvDiff } from '../shared/dto.js';
 import type { TerminalHandle } from './views/terminal.js';
 import type { LayoutMode } from './views/layout.js';
 import { DEFAULT_LAYOUT } from './views/layout.js';
@@ -9,6 +10,10 @@ export interface ClientSession {
   body: HTMLDivElement;
   terminal: TerminalHandle;
   attached: boolean;
+  /** Remote-session env divergence, set when the server pushes
+   * `session.envdiff` after a SSH launch. Drives the ⚠ marker on the tab /
+   * pane head. */
+  envDiff?: RemoteEnvDiff | null;
 }
 
 export interface UiState {
@@ -105,6 +110,13 @@ export class Store {
     const s = this.state.sessions.get(id);
     if (!s) return;
     this.state.sessions.set(id, { ...s, info: { ...s.info, state } });
+    this.notify();
+  }
+
+  setSessionEnvDiff(id: string, envDiff: RemoteEnvDiff | null) {
+    const s = this.state.sessions.get(id);
+    if (!s) return;
+    this.state.sessions.set(id, { ...s, envDiff });
     this.notify();
   }
 
