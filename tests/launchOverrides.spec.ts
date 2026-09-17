@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { buildLaunchOverrides } from '../src/shared/launchOverrides.js';
 
-const blankForm = { serverId: '', profileId: '', cwd: '', condaEnv: '', resume: '', skipPermissions: false, proxyId: '', effort: '' };
+const blankForm = { serverId: '', profileId: '', cwd: '', condaEnv: '', resume: '', skipPermissions: false, skipWebFetchPreflight: true, proxyId: '', effort: '' };
 
 test.describe('buildLaunchOverrides', () => {
   test('blank form: id fields → undefined; condaEnv/resume/skip/proxy/effort → explicit empty (a full snapshot, no client-side preset fallback)', () => {
@@ -14,13 +14,14 @@ test.describe('buildLaunchOverrides', () => {
     // The dialog submits a complete snapshot: an explicit off/None/Auto must
     // reach the server verbatim so it overrides a preset that set these.
     expect(out.skipPermissions).toBe(false);
+    expect(out.skipWebFetchPreflight).toBe(true);
     expect(out.proxyId).toBe('');
     expect(out.effort).toBe('');
   });
 
   test('filled form passes every field through verbatim', () => {
     const out = buildLaunchOverrides(
-      { serverId: 'user-server', profileId: 'user-profile', cwd: '/user/cwd', condaEnv: 'user-env', resume: 'continue', skipPermissions: true, proxyId: 'px1', effort: 'max' },
+      { serverId: 'user-server', profileId: 'user-profile', cwd: '/user/cwd', condaEnv: 'user-env', resume: 'continue', skipPermissions: true, skipWebFetchPreflight: false, proxyId: 'px1', effort: 'max' },
     );
     expect(out.serverId).toBe('user-server');
     expect(out.anthropicProfileId).toBe('user-profile');
@@ -28,8 +29,15 @@ test.describe('buildLaunchOverrides', () => {
     expect(out.condaEnv).toBe('user-env');
     expect(out.resume).toBe('continue');
     expect(out.skipPermissions).toBe(true);
+    expect(out.skipWebFetchPreflight).toBe(false);
     expect(out.proxyId).toBe('px1');
     expect(out.effort).toBe('max');
+  });
+
+  // Unlike skipPermissions the default is ON, so the interesting case is the
+  // opt-out surviving the trip — false must not be swallowed as "absent".
+  test('skipWebFetchPreflight=false reaches the server as false', () => {
+    expect(buildLaunchOverrides({ ...blankForm, skipWebFetchPreflight: false }).skipWebFetchPreflight).toBe(false);
   });
 
   test('resume = continue is preserved (the resume opt-in)', () => {

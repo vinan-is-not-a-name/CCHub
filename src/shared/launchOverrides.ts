@@ -7,6 +7,7 @@ export interface LaunchFormValues {
   condaEnv: string;
   resume: string;
   skipPermissions: boolean;
+  skipWebFetchPreflight: boolean;
   proxyId: string;
   effort: string;
 }
@@ -27,6 +28,7 @@ export function buildLaunchOverrides(form: LaunchFormValues): LaunchOverrides {
     condaEnv: form.condaEnv,
     resume: form.resume,
     skipPermissions: form.skipPermissions,
+    skipWebFetchPreflight: form.skipWebFetchPreflight,
     proxyId: form.proxyId,
     effort: form.effort,
   };

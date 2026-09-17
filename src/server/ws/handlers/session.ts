@@ -101,6 +101,7 @@ function recordRecent(ctx: WsCtx, msg: CreateMessage, launch: ResolvedLaunch): v
     // Snapshot the resolved skip/effort (already layered launch>preset by
     // resolveLaunch) so a re-launch reproduces them.
     skipPermissions: launch.skipPermissions,
+    skipWebFetchPreflight: launch.skipWebFetchPreflight,
     effort: launch.effort,
     presetNameSnapshot: launch.presetName ?? 'Custom',
   });

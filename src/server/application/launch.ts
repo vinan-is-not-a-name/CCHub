@@ -44,6 +44,16 @@ export function resolveLaunch(input: CreateSessionRequest, store: ConfigService,
     resume: params.resume,
     condaEnv: params.condaEnv,
     skipPermissions: launch.skipPermissions ?? preset?.skipPermissions,
+    // Defaults ON — the one toggle whose fallback is true rather than absent.
+    // The trailing `?? true` is what makes "new session, nothing recorded
+    // anywhere" land on the checked state the form shows; a stored `false`
+    // (explicit opt-out) survives both `??` hops because false is not nullish.
+    skipWebFetchPreflight: launch.skipWebFetchPreflight ?? preset?.skipWebFetchPreflight ?? true,
+    // SSH only: a local launch reaches a loopback endpoint directly. Anything
+    // that is not loopback is left alone (see loopbackTunnelFor).
+    loopbackTunnel: server.kind === 'ssh'
+      ? loopbackTunnelFor(profile?.env.ANTHROPIC_BASE_URL)
+      : undefined,
     proxy,
     effort: launch.effort ?? preset?.effort,
     serverName: server.name,
@@ -87,6 +97,36 @@ function resolveLaunchParams(input: CreateSessionRequest, launch: LaunchOverride
   if (condaEnv) assertCondaEnv(condaEnv);
   const resume = launch.resume ?? input.resume ?? preset?.resume;
   return { cwd, condaEnv, resume };
+}
+
+/**
+ * The reverse tunnel an SSH launch needs when its profile points at THIS
+ * machine's loopback — a cc-switch router on `http://127.0.0.1:15721` is the
+ * case that prompted this.
+ *
+ * Such a profile is a statement about where the LLM traffic goes; making that
+ * address reachable on the other side is cchub's job, not another knob. On a
+ * remote host `127.0.0.1:<port>` is the REMOTE's loopback, where nothing
+ * listens, so the same port is bound there and forwarded back here. Local
+ * launches need nothing — they reach it directly.
+ *
+ * Deliberately limited to loopback. A profile pointing at a private LAN address
+ * may well be reachable from the remote on its own, and forwarding it would be
+ * a guess.
+ */
+export function loopbackTunnelFor(baseUrl: string | undefined): ProxyTunnel | undefined {
+  if (!baseUrl) return undefined;
+  let url: URL;
+  try {
+    url = new URL(baseUrl);
+  } catch {
+    return undefined;
+  }
+  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  if (host !== '127.0.0.1' && host !== 'localhost' && host !== '::1') return undefined;
+  const port = url.port ? Number(url.port) : (url.protocol === 'https:' ? 443 : 80);
+  if (!Number.isInteger(port) || port <= 0 || port > 65535) return undefined;
+  return { bindPort: port, host: '127.0.0.1', port };
 }
 
 function buildEnv(profileEnv?: AnthropicEnv, proxy?: ProxyTunnel): Record<string, string> {

@@ -21,6 +21,7 @@ export interface RecordLaunchInput {
   condaEnv?: string;
   resume?: 'continue';
   skipPermissions?: boolean;
+  skipWebFetchPreflight?: boolean;
   effort?: string;
   /** Name to fall back on when the preset is later deleted / renamed. Live
    * chip rendering prefers the live preset name via id lookup. */
@@ -106,6 +107,7 @@ export class ConfigStore {
       condaEnv: input.condaEnv,
       resume: input.resume,
       skipPermissions: input.skipPermissions,
+      skipWebFetchPreflight: input.skipWebFetchPreflight,
       effort: input.effort,
       presetNameSnapshot: input.presetNameSnapshot,
       lastUsedAt: now,

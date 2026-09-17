@@ -13,6 +13,10 @@ export interface RemoteEnvProbe {
   env: Record<string, string>;
   claudePath?: string;
   claudeVersion?: string;
+  /** Absolute path of the editor the session's `${EDITOR:-…}` fallback would
+   * resolve to — `vim` if present, else `vi`. Undefined when the host has
+   * neither, which is the one case injection cannot repair. */
+  editorPath?: string;
 }
 
 /** Struct-NUL probe payload. env is `KEY=VALUE\0KEY=VALUE\0...`; the two
@@ -22,6 +26,9 @@ const PROBE_SCRIPT = [
   'env -0 | sort -z',
   `printf '\\0CCHUB_CLAUDE_PATH\\0%s' "$(command -v claude 2>/dev/null)"`,
   `printf '\\0CCHUB_CLAUDE_VERSION\\0%s' "$(timeout 10 claude --version 2>/dev/null | head -1)"`,
+  // Same resolution the launch's `${EDITOR:-…}` fallback performs, so the
+  // warning can name the editor the session actually got.
+  `printf '\\0CCHUB_EDITOR_PATH\\0%s' "$(command -v vim || command -v vi)"`,
 ].join('; ');
 
 const PROBE_TIMEOUT_MS = 8000;
@@ -39,6 +46,7 @@ export function parseProbeOutput(raw: string): RemoteEnvProbe {
     if (!item) continue;
     if (item === 'CCHUB_CLAUDE_PATH') { probe.claudePath = items[++i]?.trim() || undefined; continue; }
     if (item === 'CCHUB_CLAUDE_VERSION') { probe.claudeVersion = items[++i]?.trim() || undefined; continue; }
+    if (item === 'CCHUB_EDITOR_PATH') { probe.editorPath = items[++i]?.trim() || undefined; continue; }
     const eq = item.indexOf('=');
     if (eq <= 0) continue;
     const key = item.slice(0, eq);
@@ -108,8 +116,29 @@ export function diffRemoteEnv(base: RemoteEnvProbe, interactive: RemoteEnvProbe)
   const interactiveDirs = pathDirs(interactive.env.PATH);
   const missingPathDirs = interactiveDirs.filter((d) => !baseDirs.includes(d));
 
-  if (!claude && missingKeys.length === 0 && missingPathDirs.length === 0) return null;
-  return { claude, missingKeys, missingPathDirs };
+  const injectedEditor = pickInjectedEditor(base, interactive);
+
+  if (!claude && !injectedEditor && missingKeys.length === 0 && missingPathDirs.length === 0) return null;
+  return { claude, missingKeys, missingPathDirs, ...(injectedEditor ? { injectedEditor } : {}) };
+}
+
+/** The editor cc-remote had to supply for this session, or undefined when the
+ * host already had one.
+ *
+ * A host that sets EDITOR/VISUAL in NEITHER invocation mode — the one this was
+ * measured on sets neither, in any profile file — leaves claude with no editor
+ * to launch, so Ctrl+G hangs on "Save and close editor to continue..." forever.
+ * The launch answers with a `${EDITOR:-…}` fallback (see sshEditorFallback),
+ * which is invisible in the terminal: the user sees a *working* Ctrl+G and no
+ * reason to suspect their own interactive ssh has the same hole. Hence the
+ * report.
+ *
+ * Deliberately requires BOTH modes to be empty: if interactive login sets one,
+ * the session is diverging in the usual way and `missingKeys` already says so. */
+function pickInjectedEditor(base: RemoteEnvProbe, interactive: RemoteEnvProbe): string | undefined {
+  const bare = (env: Record<string, string>) => !env.EDITOR && !env.VISUAL;
+  if (!bare(base.env) || !bare(interactive.env)) return undefined;
+  return base.editorPath;
 }
 
 function pathDirs(pathValue: string | undefined): string[] {

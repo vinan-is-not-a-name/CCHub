@@ -33,6 +33,16 @@ test.describe('parseProbeOutput', () => {
     const probe = parseProbeOutput('X=1\0');
     expect(probe.env.X).toBe('1');
   });
+
+  test('parses the editor path marker', () => {
+    const raw = ['PATH=/x', 'CCHUB_EDITOR_PATH', '/usr/bin/vim'].join('\0');
+    expect(parseProbeOutput(raw).editorPath).toBe('/usr/bin/vim');
+  });
+
+  test('an empty editor marker (host has neither vim nor vi) yields undefined', () => {
+    const raw = ['PATH=/x', 'CCHUB_EDITOR_PATH', ''].join('\0');
+    expect(parseProbeOutput(raw).editorPath).toBeUndefined();
+  });
 });
 
 test.describe('diffRemoteEnv', () => {
@@ -94,5 +104,42 @@ test.describe('diffRemoteEnv', () => {
   test('null when only PATH noise differs but paths are same set', () => {
     const interactive = base({ env: { PATH: '/usr/bin:/usr/local/bin' } });
     expect(diffRemoteEnv(base(), interactive)).toBeNull();
+  });
+
+  // One measured host has no editor at all: neither bash -lc nor an interactive
+  // login sets EDITOR/VISUAL, so the session's `${EDITOR:-…}`
+  // fallback is what makes Ctrl+G work. Nothing else in this diff would say so,
+  // because both modes agree. Reporting it is the difference between "Ctrl+G
+  // works here" and "Ctrl+G works here and would NOT on your own ssh".
+  test('reports the injected editor when the host has none in either mode', () => {
+    const withEditor = base({ env: { PATH: '/usr/bin' }, editorPath: '/usr/bin/vim' });
+    const interactive = base({ env: { PATH: '/usr/bin' } });
+    expect(diffRemoteEnv(withEditor, interactive)!.injectedEditor).toBe('/usr/bin/vim');
+  });
+
+  test('no injected-editor note when the host already sets one', () => {
+    // Then the fallback is a no-op (${VAR:-…} keeps the host's value), so there
+    // is nothing to tell the user about.
+    const withEditor = base({ env: { PATH: '/usr/bin', EDITOR: 'nano' }, editorPath: '/usr/bin/vim' });
+    const interactive = base({ env: { PATH: '/usr/bin', EDITOR: 'nano' } });
+    expect(diffRemoteEnv(withEditor, interactive)).toBeNull();
+  });
+
+  test('an interactive-only EDITOR is a normal missingKey, not an injection', () => {
+    // Interactive login sets it and the session does not — that IS the classic
+    // divergence the missingKeys list exists for, and cc's own resolution picks
+    // the interactive value up from the profile files anyway.
+    const withEditor = base({ env: { PATH: '/usr/bin' }, editorPath: '/usr/bin/vim' });
+    const interactive = base({ env: { PATH: '/usr/bin', EDITOR: 'nano' } });
+    const diff = diffRemoteEnv(withEditor, interactive);
+    expect(diff!.injectedEditor).toBeUndefined();
+    expect(diff!.missingKeys).toContain('EDITOR');
+  });
+
+  test('no note when the host has no editor to inject', () => {
+    // Neither vim nor vi: nothing was injected, so claiming one would be a lie.
+    const bare = base({ env: { PATH: '/usr/bin' } });
+    const interactive = base({ env: { PATH: '/usr/bin' } });
+    expect(diffRemoteEnv(bare, interactive)).toBeNull();
   });
 });

@@ -40,9 +40,9 @@ test.describe('buildCommand', () => {
     expect(cli.buildCommand({ resume: 'continue', mcpConfigPath: '/tmp/mcp-abc.json' })).not.toContain('--allowedTools');
   });
 
-  test('apiEnv is injected as an inline --settings env block (no file written)', () => {
+  test('the payload is inlined as --settings JSON when no file was provisioned', () => {
     const argv = cli.buildCommand({
-      apiEnv: { ANTHROPIC_BASE_URL: 'https://api.ikuncode.cc', ANTHROPIC_AUTH_TOKEN: 'sk-secret' },
+      settings: { payload: { env: { ANTHROPIC_BASE_URL: 'https://api.ikuncode.cc', ANTHROPIC_AUTH_TOKEN: 'sk-secret' } } },
     });
     expect(argv).toContain('--settings');
     const idx = argv.indexOf('--settings');
@@ -51,17 +51,62 @@ test.describe('buildCommand', () => {
     });
   });
 
-  test('apiEnv empty or absent adds no --settings', () => {
-    expect(cli.buildCommand({ apiEnv: {} })).toEqual(['claude']);
-    expect(cli.buildCommand({ apiEnv: undefined })).toEqual(['claude']);
+  test('a provisioned path replaces the JSON string entirely', () => {
+    // Windows local sessions: the inline string cannot survive
+    // cmd → claude.cmd → node there, so the provisioner wrote the payload to a
+    // file. Inlining it as well would resurrect the exact bug that file exists
+    // to avoid, so the path must be the ONLY --settings argument.
+    const argv = cli.buildCommand({
+      settings: { payload: { env: { ANTHROPIC_BASE_URL: 'https://x' } }, path: 'C:\\Temp\\cchub-settings-abc.json' },
+    });
+    expect(argv.filter((a) => a === '--settings')).toHaveLength(1);
+    expect(argv[argv.indexOf('--settings') + 1]).toBe('C:\\Temp\\cchub-settings-abc.json');
+  });
+
+  test('no settings, or an empty payload with no path, adds no --settings', () => {
+    expect(cli.buildCommand({ settings: { payload: {} } })).toEqual(['claude']);
+    expect(cli.buildCommand({ settings: undefined })).toEqual(['claude']);
     expect(cli.buildCommand({})).toEqual(['claude']);
+  });
+
+  // skipWebFetchPreflight is settings-shaped, not a flag: cc 2.1.235 has no env
+  // var and no CLI option for it, only a settings key. So it shares the
+  // --settings payload with the profile env — and shares, not repeats: a second
+  // --settings flag would win and silently drop the other's contents.
+  test('the WebFetch flag rides the same --settings block as the env', () => {
+    const argv = cli.buildCommand({
+      settings: { payload: { env: { ANTHROPIC_BASE_URL: 'https://api.ikuncode.cc' }, skipWebFetchPreflight: true } },
+    });
+    expect(argv.filter((a) => a === '--settings')).toHaveLength(1);
+    expect(JSON.parse(argv[argv.indexOf('--settings') + 1])).toEqual({
+      env: { ANTHROPIC_BASE_URL: 'https://api.ikuncode.cc' },
+      skipWebFetchPreflight: true,
+    });
+  });
+
+  test('a payload of just the WebFetch flag still emits --settings (no profile required)', () => {
+    const argv = cli.buildCommand({ settings: { payload: { skipWebFetchPreflight: true } } });
+    expect(argv).toContain('--settings');
+    expect(JSON.parse(argv[argv.indexOf('--settings') + 1])).toEqual({ skipWebFetchPreflight: true });
+  });
+
+  test('an empty payload adds nothing — the adapter never asserts false', () => {
+    // The "unchecked" case never reaches here: buildSettingsPayload omits the
+    // key rather than writing `false`, so a user who enabled it in their own
+    // settings.json keeps it. This is the adapter's half of that contract.
+    //
+    // NOTE: this asserts a NON-behavior, so it cannot be red-verified by
+    // reverting the feature — the pre-feature code passes it too. It guards
+    // against a future change that starts emitting `false`, which is exactly
+    // the regression the comment above describes.
+    expect(cli.buildCommand({ settings: { payload: {} } })).toEqual(['claude']);
   });
 
   test('--settings composes with resume + mcp-config', () => {
     const argv = cli.buildCommand({
       resume: 'continue',
       mcpConfigPath: '/tmp/mcp.json',
-      apiEnv: { ANTHROPIC_MODEL: 'm' },
+      settings: { payload: { env: { ANTHROPIC_MODEL: 'm' } } },
     });
     // argv order: claude -c --mcp-config <path> --settings <json>
     const idx = argv.indexOf('--settings');

@@ -52,6 +52,7 @@ export function mountLaunchDialog(deps: AppDeps, params: URLSearchParams) {
       condaEnv: val('launch-conda'),
       resume: val('launch-resume'),
       skipPermissions: checked('launch-skip-permissions'),
+      skipWebFetchPreflight: checked('launch-skip-web-fetch-preflight'),
       proxyId: val('launch-proxy'),
       effort: val('launch-effort'),
     });
@@ -86,6 +87,11 @@ export function mountLaunchDialog(deps: AppDeps, params: URLSearchParams) {
     cwdSuggest.hide();
     setVal('launch-cwd', preset ? preset.cwd : params.get('sshCwd') ?? params.get('cwd') ?? '');
     setChecked('launch-skip-permissions', preset?.skipPermissions === true);
+    // Defaults ON: a preset saved before this field existed resolves to true
+    // server-side, so the box must show checked for it too — otherwise the
+    // form would display "off" and then submit an explicit false, silently
+    // overriding the default it never showed.
+    setChecked('launch-skip-web-fetch-preflight', preset?.skipWebFetchPreflight ?? true);
     setVal('launch-effort', preset?.effort ?? '');
     // Always start collapsed here: the launch dialog is "pick a preset and go",
     // so auto-opening for only some presets reads as inconsistent. The preset's
@@ -147,6 +153,7 @@ export function mountLaunchDialog(deps: AppDeps, params: URLSearchParams) {
     // the old preset-fallback. proxyId '' is an explicit "None" and applies.
     if (typeof recent.proxyId === 'string') setVal('launch-proxy', recent.proxyId);
     if (typeof recent.skipPermissions === 'boolean') setChecked('launch-skip-permissions', recent.skipPermissions);
+    if (typeof recent.skipWebFetchPreflight === 'boolean') setChecked('launch-skip-web-fetch-preflight', recent.skipWebFetchPreflight);
     if (typeof recent.effort === 'string') setVal('launch-effort', recent.effort);
     // Refresh conda list against the (possibly new) server, then set the value.
     // We can't just setVal on the select — the option list is populated async.

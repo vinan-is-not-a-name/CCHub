@@ -44,6 +44,7 @@ export interface PresetFormValues {
   conda: string;
   resume: string;
   skipPermissions: boolean;
+  skipWebFetchPreflight: boolean;
   proxyId: string;
   effort: string;
 }
@@ -113,6 +114,10 @@ export function buildPresetSaveMessage(form: PresetFormValues, ctx: CardContext)
     condaEnv: form.conda || undefined,
     resume: (form.resume as 'continue' | '') || undefined,
     skipPermissions: form.skipPermissions || undefined,
+    // Default-on toggle: only the opt-out is worth persisting, so a checked box
+    // stores nothing and presets keep a compact config. The server mirrors this
+    // (`=== false ? false : undefined`) and resolves an absent value to true.
+    skipWebFetchPreflight: form.skipWebFetchPreflight === false ? false : undefined,
     proxyId: form.proxyId || undefined,
     effort: form.effort || undefined,
   }};

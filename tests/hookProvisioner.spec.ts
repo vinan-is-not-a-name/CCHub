@@ -49,10 +49,71 @@ test.describe('SessionHookProvisioner', () => {
     const provisioner = new SessionHookProvisioner({ port: 7777, authToken: 'tok' });
     const grant = provisioner.provision('sess-ssh', sshLaunch('/home/u/work'));
     expect(grant.settingsPath).toBe('/home/u/work/.claude/settings.local.json');
-    expect(grant.hookTunnel).toEqual({ bindPort: 7777, host: '127.0.0.1', port: 7777 });
     expect(grant.setupCommand).toContain("mkdir -p '/home/u/work/.claude'");
-    expect(grant.setupCommand).toContain("http://127.0.0.1:7777/hook/sess-ssh");
     expect(grant.setupCommand).toContain("--noproxy '\"'\"'*'\"'\"'");
+    // The tunnel forwards FROM a remote port TO cchub's own listener. The
+    // remote end is NOT cchub's port: it is a per-session number, because
+    // `ssh -R` binds it on a host several sessions can share.
+    expect(grant.hookTunnel).toMatchObject({ host: '127.0.0.1', port: 7777 });
+    expect(grant.hookTunnel!.bindPort).not.toBe(7777);
+    // The invariant that keeps hooks alive: the port the remote settings POST
+    // to must be the port the tunnel actually binds. If these drift, every
+    // hook silently 404s and turns never end.
+    expect(grant.setupCommand).toContain(`http://127.0.0.1:${grant.hookTunnel!.bindPort}/hook/sess-ssh`);
+  });
+
+  // "Port conflict when connecting several sessions to one server": every SSH
+  // session used to claim cchub's own port as its remote bind, so the second
+  // session to a host failed to bind and lost its hooks.
+  test.describe('remote hook ports are per session', () => {
+    test('two concurrent SSH sessions get different remote ports', () => {
+      const provisioner = new SessionHookProvisioner({ port: 7777, authToken: 'tok' });
+      const a = provisioner.provision('sess-a', sshLaunch('/home/u/a'));
+      const b = provisioner.provision('sess-b', sshLaunch('/home/u/b'));
+      expect(a.hookTunnel!.bindPort).not.toBe(b.hookTunnel!.bindPort);
+      // Both still forward to the one local listener.
+      expect(a.hookTunnel!.port).toBe(7777);
+      expect(b.hookTunnel!.port).toBe(7777);
+    });
+
+    test('a freed port is handed to the next session', () => {
+      const provisioner = new SessionHookProvisioner({ port: 7777, authToken: 'tok' });
+      const a = provisioner.provision('sess-a', sshLaunch('/home/u/a'));
+      const claim = a.hookTunnel!.bindPort;
+      provisioner.cleanup('sess-a');
+      // The range is scanned from a fixed base, so once the only claim is
+      // released the next session starts over at that base.
+      //
+      // NOTE: asserts a value the pre-fix code also produced (it handed every
+      // session the same port, so b == a trivially). It is not revert-
+      // discriminating on its own — its job is to keep cleanup RELEASING, which
+      // the "two concurrent sessions differ" test above cannot see.
+      const b = provisioner.provision('sess-b', sshLaunch('/home/u/b'));
+      expect(b.hookTunnel!.bindPort).toBe(claim);
+    });
+
+    test('re-provisioning one session keeps its port (resume fallback rebuilds the same tunnel)', () => {
+      const provisioner = new SessionHookProvisioner({ port: 7777, authToken: 'tok' });
+      const first = provisioner.provision('sess-a', sshLaunch('/home/u/a'));
+      // The host's settings.local.json already names this port; a respawn that
+      // picked a new one would leave the written file pointing at nothing.
+      const again = provisioner.provision('sess-a', sshLaunch('/home/u/a'));
+      expect(again.hookTunnel!.bindPort).toBe(first.hookTunnel!.bindPort);
+    });
+
+    test('local sessions are unaffected — they have no tunnel at all', async () => {
+      const cwd = mkdtempSync(join(tmpdir(), 'cchub-hook-'));
+      try {
+        const provisioner = new SessionHookProvisioner({ port: 7777, authToken: 'tok' });
+        const grant = provisioner.provision('sess-local', localLaunch(cwd));
+        expect(grant.hookTunnel).toBeUndefined();
+        const settings = JSON.parse(readFileSync(grant.settingsPath, 'utf8'));
+        expect(settings.hooks.Stop[0].hooks[0].command).toContain('http://127.0.0.1:7777/hook/sess-local');
+        provisioner.cleanup('sess-local');
+      } finally {
+        await rm(cwd, { recursive: true, force: true });
+      }
+    });
   });
 
   test('windows ssh provision uses PowerShell write command and Windows curl quoting', () => {

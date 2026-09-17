@@ -130,6 +130,59 @@ test.describe('resolveLaunch', () => {
     expect(r.env.HTTPS_PROXY).toBeUndefined();
   });
 
+
+  // A profile whose base URL points at THIS machine's loopback is describing a
+  // local service — cchub's own cc-switch router on 127.0.0.1:15721 is the case
+  // that prompted this. On an SSH target that address is the REMOTE's loopback,
+  // where nothing is listening, so the launch forwards the port back here. The
+  // profile already says where the LLM traffic goes; making it reachable is not
+  // another thing for the user to configure.
+  test.describe('loopback endpoints on SSH targets', () => {
+    function resolveWithProfile(server: LocalServerProfile | SshServerProfile, baseUrl: string) {
+      const p1 = profile('p1', { ANTHROPIC_BASE_URL: baseUrl });
+      const pre = preset('pre', { serverId: server.id, anthropicProfileId: 'p1', cwd: '/work' });
+      const svc = makeService({ servers: [server], profiles: [p1], presets: [pre], defaults: { presetId: 'pre' } });
+      return resolveLaunch({ presetId: 'pre' }, svc);
+    }
+
+    test('an SSH launch forwards the profile port back to this machine', () => {
+      const r = resolveWithProfile(sshServer('ssh'), 'http://127.0.0.1:15721');
+      expect(r.loopbackTunnel).toEqual({ bindPort: 15721, host: '127.0.0.1', port: 15721 });
+    });
+
+    test('localhost and ::1 mean the same thing', () => {
+      expect(resolveWithProfile(sshServer('ssh'), 'http://localhost:15721').loopbackTunnel)
+        .toEqual({ bindPort: 15721, host: '127.0.0.1', port: 15721 });
+      expect(resolveWithProfile(sshServer('ssh'), 'http://[::1]:15721').loopbackTunnel)
+        .toEqual({ bindPort: 15721, host: '127.0.0.1', port: 15721 });
+    });
+
+    test('a port-less loopback URL falls back to the scheme default', () => {
+      expect(resolveWithProfile(sshServer('ssh'), 'http://127.0.0.1').loopbackTunnel?.bindPort).toBe(80);
+      expect(resolveWithProfile(sshServer('ssh'), 'https://localhost').loopbackTunnel?.bindPort).toBe(443);
+    });
+
+    test('a LOCAL launch needs no tunnel — it reaches the endpoint directly', () => {
+      expect(resolveWithProfile(localServer('local'), 'http://127.0.0.1:15721').loopbackTunnel).toBeUndefined();
+    });
+
+    test('an ordinary remote relay gets no tunnel', () => {
+      expect(resolveWithProfile(sshServer('ssh'), 'https://api.deepseek.com/anthropic').loopbackTunnel).toBeUndefined();
+    });
+
+    test('a private LAN address is left alone — the remote may reach it on its own', () => {
+      // Only loopback is unambiguous: it can ONLY mean "the machine cchub runs
+      // on". Forwarding a routable address would be a guess.
+      expect(resolveWithProfile(sshServer('ssh'), 'http://192.168.1.5:15721').loopbackTunnel).toBeUndefined();
+    });
+
+    test('a launch with no profile at all gets no tunnel', () => {
+      const local = localServer('local'), ssh = sshServer('ssh');
+      const svc = makeService({ servers: [local, ssh], defaults: { serverId: 'ssh' } });
+      expect(resolveLaunch({ launch: { serverId: 'ssh', cwd: '/work' } }, svc).loopbackTunnel).toBeUndefined();
+    });
+  });
+
   test('passes skipPermissions through from the preset', () => {
     const local = localServer('local');
     const pre = preset('pre', { serverId: 'local', cwd: '/work', skipPermissions: true });
@@ -201,6 +254,41 @@ test.describe('resolveLaunch', () => {
     const svc = makeService({ servers: [local], presets: [pre], defaults: { presetId: 'pre' } });
     const r = resolveLaunch({ presetId: 'pre', launch: { skipPermissions: false } }, svc);
     expect(r.skipPermissions).toBe(false);
+  });
+
+  // The WebFetch-preflight skip is the one toggle that defaults ON. A preset
+  // saved before the field existed carries no value and must resolve to true —
+  // that is what the form shows and what a brand-new session gets.
+  test('skipWebFetchPreflight defaults to true when nothing recorded one', () => {
+    const local = localServer('local');
+    const pre = preset('pre', { serverId: 'local', cwd: '/work' });
+    const svc = makeService({ servers: [local], presets: [pre], defaults: { presetId: 'pre' } });
+    expect(resolveLaunch({ presetId: 'pre' }, svc).skipWebFetchPreflight).toBe(true);
+  });
+
+  test('a preset opt-out (false) survives the default', () => {
+    const local = localServer('local');
+    const pre = preset('pre', { serverId: 'local', cwd: '/work', skipWebFetchPreflight: false });
+    const svc = makeService({ servers: [local], presets: [pre], defaults: { presetId: 'pre' } });
+    expect(resolveLaunch({ presetId: 'pre' }, svc).skipWebFetchPreflight).toBe(false);
+  });
+
+  // false is not nullish, so `launch ?? preset ?? true` stops at the launch —
+  // the opt-out must not fall through to the preset or the default.
+  test('launch override false overrides a preset that left it on', () => {
+    const local = localServer('local');
+    const pre = preset('pre', { serverId: 'local', cwd: '/work' });
+    const svc = makeService({ servers: [local], presets: [pre], defaults: { presetId: 'pre' } });
+    const r = resolveLaunch({ presetId: 'pre', launch: { skipWebFetchPreflight: false } }, svc);
+    expect(r.skipWebFetchPreflight).toBe(false);
+  });
+
+  test('launch override true re-enables it over a preset opt-out', () => {
+    const local = localServer('local');
+    const pre = preset('pre', { serverId: 'local', cwd: '/work', skipWebFetchPreflight: false });
+    const svc = makeService({ servers: [local], presets: [pre], defaults: { presetId: 'pre' } });
+    const r = resolveLaunch({ presetId: 'pre', launch: { skipWebFetchPreflight: true } }, svc);
+    expect(r.skipWebFetchPreflight).toBe(true);
   });
 
   // Selecting "Auto" (effort '') over a preset that set an effort. Empty string

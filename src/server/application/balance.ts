@@ -16,25 +16,31 @@ import {
   querySiteBalance,
 } from '../infrastructure/transport/balanceProbe.js';
 
-/** One distinct relay site after grouping. `authToken` stays server-side. */
+/** One distinct relay site after grouping. `credential` (auth token OR api
+ * key) stays server-side. */
 export interface BalanceSiteGroup {
   baseUrl: string;
-  authToken: string;
+  credential: string;
   presetNames: string[];
 }
 
-/** Group every profile that carries a baseUrl + authToken by the
- * (normalized baseUrl, authToken) pair, preserving config order per group. */
+/** Group every profile that carries a baseUrl plus SOME credential by the
+ * (normalized baseUrl, credential) pair, preserving config order per group.
+ *
+ * Either secret counts: a profile may hold ANTHROPIC_AUTH_TOKEN (bearer) or
+ * ANTHROPIC_API_KEY (x-api-key) — an API-key-only profile is a normal setup
+ * for Anthropic-native gateways, and requiring a token silently dropped those
+ * sites from the dropdown entirely. */
 export function groupBalanceSites(profiles: AnthropicEnvProfile[]): BalanceSiteGroup[] {
   const byKey = new Map<string, BalanceSiteGroup>();
   for (const profile of profiles) {
     const baseUrl = profile.env.ANTHROPIC_BASE_URL;
-    const authToken = profile.env.ANTHROPIC_AUTH_TOKEN;
-    if (!baseUrl || !authToken) continue;
-    const key = normalizeBaseUrl(baseUrl) + '|' + authToken;
+    const credential = profile.env.ANTHROPIC_AUTH_TOKEN || profile.env.ANTHROPIC_API_KEY;
+    if (!baseUrl || !credential) continue;
+    const key = normalizeBaseUrl(baseUrl) + '|' + credential;
     let group = byKey.get(key);
     if (!group) {
-      group = { baseUrl: normalizeBaseUrl(baseUrl), authToken, presetNames: [] };
+      group = { baseUrl: normalizeBaseUrl(baseUrl), credential, presetNames: [] };
       byKey.set(key, group);
     }
     group.presetNames.push(profile.name);
@@ -54,7 +60,7 @@ export const BALANCE_CONCURRENCY = 4;
 const EMPTY_RAW: BalanceRaw = { limit: null, used: null, remain: null, currency: 'USD' };
 
 /** Last-known balance for one distinct site. Keyed by the (normalized
- * baseUrl, authToken) pair — the SAME site probed with DIFFERENT keys is two
+ * baseUrl, credential) pair — the SAME site probed with DIFFERENT keys is two
  * different groups and must not share a stale value (that was the
  * "same host, different key pollution" bug: a failing key A showed key B's
  * balance because the cache was keyed by baseUrl alone). */
@@ -68,7 +74,7 @@ export interface BalanceSiteLast {
 
 export type BalanceLastCache = Map<string, BalanceSiteLast>;
 
-const groupKey = (g: BalanceSiteGroup) => normalizeBaseUrl(g.baseUrl) + '|' + g.authToken;
+const groupKey = (g: BalanceSiteGroup) => normalizeBaseUrl(g.baseUrl) + '|' + g.credential;
 
 /** Probe every distinct site, bounded concurrency. A failing site becomes a
  * row with `error` rather than taking the whole response down — one dead
@@ -99,16 +105,22 @@ export async function probeAllSites(
         continue;
       }
       try {
-        const raw = await query({ baseUrl: group.baseUrl, authToken: group.authToken });
+        const raw = await query({ baseUrl: group.baseUrl, credential: group.credential });
         const view = toView(group, raw, at);
         prev.set(groupKey(group), lastOf(view));
         views[i] = view;
       } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        // A 404 / non-JSON answer means "this host has no balance API we know
+        // of" — surface that as 'unsupported' so the panel says so plainly
+        // instead of printing an HTML error page. Timeouts stay raw: those are
+        // transient and the stale value (if any) is the useful thing to show.
+        const unsupported = /^4\d\d/.test(message) || message.includes('non-JSON');
         views[i] = toView(
           group,
           EMPTY_RAW,
           at,
-          error instanceof Error ? error.message : String(error),
+          unsupported ? 'unsupported' : message,
           prev.get(groupKey(group)),
         );
       }
@@ -130,7 +142,7 @@ export function cachedViews(groups: BalanceSiteGroup[], cache: BalanceLastCache,
   return groups.map((group) => {
     const base = {
       baseUrl: group.baseUrl,
-      keyPreview: previewKey(group.authToken),
+      keyPreview: previewKey(group.credential),
       presetNames: group.presetNames,
       limit: null as number | null,
       used: null as number | null,
@@ -172,7 +184,7 @@ function toView(group: BalanceSiteGroup, raw: BalanceRaw, at: number, error?: st
   const stale = error !== undefined && last?.remain != null;
   return {
     baseUrl: group.baseUrl,
-    keyPreview: previewKey(group.authToken),
+    keyPreview: previewKey(group.credential),
     presetNames: group.presetNames,
     remain: stale ? last!.remain : raw.remain,
     limit: stale ? last!.limit : raw.limit,
@@ -180,6 +192,7 @@ function toView(group: BalanceSiteGroup, raw: BalanceRaw, at: number, error?: st
     currency: stale ? last!.currency : raw.currency,
     ...(error ? { error } : {}),
     ...(stale ? { stale: true } : {}),
+    ...(raw.quota && !stale ? { quota: raw.quota } : {}),
     at: stale ? last!.at : at,
   };
 }

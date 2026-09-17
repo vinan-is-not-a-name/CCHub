@@ -10,6 +10,7 @@ import { loadRuntime } from './runtime.js';
 import { logger } from './logger.js';
 import { MetricsCollector } from '../infrastructure/metrics/metricsCollector.js';
 import { SessionHookProvisioner } from '../infrastructure/hook/hookProvisioner.js';
+import { TmpFileSettingsProvisioner } from '../infrastructure/settings/sessionSettings.js';
 import { BalanceLastCache } from '../application/balance.js';
 
 const runtime = loadRuntime();
@@ -20,7 +21,8 @@ const runtime = loadRuntime();
 // tunnel.
 const mcpProvisioner = new TmpFileMcpProvisioner({ port: runtime.port, authToken: runtime.authToken });
 const hookProvisioner = new SessionHookProvisioner({ port: runtime.port, authToken: runtime.authToken });
-const manager = new SessionManager({ historySize: runtime.historySize, mcpProvisioner, hookProvisioner });
+const settingsProvisioner = new TmpFileSettingsProvisioner();
+const manager = new SessionManager({ historySize: runtime.historySize, mcpProvisioner, hookProvisioner, settingsProvisioner });
 const feeder = makeSessionFeeder(manager);
 const configPath = process.env.CCHUB_CONFIG ?? join(homedir(), '.cchub', 'config.json');
 const repo = new FileConfigRepository(configPath);

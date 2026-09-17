@@ -228,11 +228,21 @@ function balanceText(site: BalanceSiteView): string {
       const ago = relativeAge(site.at);
       return `${text} (${ago})`;
     }
+    // GLM-style plans also report window percentages; append them so the
+    // credits figure comes with the "how much of the window is used" context.
+    if (site.quota && site.quota.length > 0) {
+      return `${text} · ${quotaText(site.quota)}`;
+    }
     return text;
   }
+  if (site.quota && site.quota.length > 0) return quotaText(site.quota);
   // 'pending' = the cached first frame, probe still running for this site.
   if (site.error === 'pending') return '…';
   return site.error === 'unsupported' ? t('balance.unsupported') : t('balance.error').replace('{error}', site.error ?? '?');
+}
+
+function quotaText(quota: Array<{ window: string; percent: number }>): string {
+  return quota.map((q) => `${t(`balance.window.${q.window}`)} ${q.percent}%`).join(' · ');
 }
 
 /** Human-readable age from an epoch ms, e.g. "5 min ago", "1h ago", "2d ago",
@@ -252,7 +262,9 @@ function relativeAge(at: number): string {
  * zero/near-zero remaining, amber when low, muted while a probe is pending,
  * plain otherwise. */
 function balanceClass(site: BalanceSiteView): string {
+  if (site.remain === null && site.quota && site.quota.length > 0) return 'bal-note';
   if (site.error === 'pending') return 'bal-pending';
+  if (site.error === 'unsupported') return 'bal-note';
   if (site.remain === null) return 'bal-err';
   if (site.remain <= 5) return 'bal-err';
   if (site.remain <= 20) return 'bal-warn';
@@ -260,6 +272,11 @@ function balanceClass(site: BalanceSiteView): string {
 }
 
 function fmtMoney(n: number, currency = 'USD'): string {
+  // Subscription plans bill in units, not currency (GLM reports "credits") —
+  // show the bare number with the unit name rather than inventing a symbol.
+  if (currency !== 'USD' && currency !== 'CNY') {
+    return `${n.toLocaleString('en-US')} ${currency}`;
+  }
   const symbol = currency === 'CNY' ? '¥' : '$';
   return symbol + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }

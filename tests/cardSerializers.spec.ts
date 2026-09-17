@@ -55,6 +55,7 @@ const presetForm: PresetFormValues = {
   conda: 'myenv',
   resume: 'continue',
   skipPermissions: false,
+  skipWebFetchPreflight: true,
   proxyId: '',
   effort: '',
 };
@@ -211,7 +212,7 @@ test.describe('buildPresetSaveMessage', () => {
 
   test('empty optional fields become undefined', () => {
     const msg = buildPresetSaveMessage({
-      name: 'P', serverId: '', profileId: '', cwd: '', conda: '', resume: '', skipPermissions: false, proxyId: '',
+      name: 'P', serverId: '', profileId: '', cwd: '', conda: '', resume: '', skipPermissions: false, skipWebFetchPreflight: true, proxyId: '', effort: '',
     }, { editing: false, selectedId: '' });
     expect(msg.preset.serverId).toBeUndefined();
     expect(msg.preset.anthropicProfileId).toBeUndefined();
@@ -219,7 +220,17 @@ test.describe('buildPresetSaveMessage', () => {
     expect(msg.preset.condaEnv).toBeUndefined();
     expect(msg.preset.resume).toBeUndefined();
     expect(msg.preset.skipPermissions).toBeUndefined();
+    // Default-ON toggle: checked is the default, so it stores nothing —
+    // only the opt-out is worth persisting.
+    expect(msg.preset.skipWebFetchPreflight).toBeUndefined();
     expect(msg.preset.proxyId).toBeUndefined();
+  });
+
+  test('skipWebFetchPreflight stores ONLY the opt-out (default stays absent)', () => {
+    const off = buildPresetSaveMessage({ ...presetForm, skipWebFetchPreflight: false }, { editing: false, selectedId: '' });
+    expect(off.preset.skipWebFetchPreflight).toBe(false);
+    const on = buildPresetSaveMessage({ ...presetForm, skipWebFetchPreflight: true }, { editing: false, selectedId: '' });
+    expect(on.preset.skipWebFetchPreflight).toBeUndefined();
   });
 
   test('skipPermissions and proxyId pass through when set', () => {
@@ -244,6 +255,7 @@ test.describe('buildProxySaveMessage', () => {
       proxy: { id: undefined, name: 'Corp', bindPort: 1080, host: '192.0.2.42', port: 7890 },
     });
   });
+
 
   test('edit mode includes id', () => {
     const msg = buildProxySaveMessage(proxyForm, { editing: true, selectedId: 'px1' });

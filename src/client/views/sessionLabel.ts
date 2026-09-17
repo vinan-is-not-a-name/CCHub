@@ -77,6 +77,12 @@ export function envDiffTooltip(diff: RemoteEnvDiff | null | undefined): string {
         .replace('{interactivePath}', diff.claude.interactivePath ?? '?'),
     );
   }
+  // Not a divergence but a repair, so it leads: the host has no editor at all,
+  // and without this line the session would look perfectly healthy while
+  // Ctrl+G silently waits forever for an editor that never opens.
+  if (diff.injectedEditor) {
+    lines.push(t('envdiff.injectedEditor').replace('{editor}', diff.injectedEditor));
+  }
   if (diff.missingKeys.length > 0) {
     const shown = diff.missingKeys.slice(0, 6).join(', ');
     const tail = diff.missingKeys.length > 6

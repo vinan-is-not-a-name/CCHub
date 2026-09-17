@@ -393,6 +393,9 @@ body {
 /* First (cached) frame while the probe for this site is still running: the
    row is a placeholder, not a failure — keep it quiet. */
 .balance-monitor .bal-bal.bal-pending { color: var(--muted); }
+/* Subscription gateway: usage windows ("mo 59% · wk 11%") or "no balance API"
+   — informational, not a failure. */
+.balance-monitor .bal-bal.bal-note { color: var(--muted); font-size: 11.5px; }
 .balance-monitor .bal-empty {
   color: var(--muted);
   font-style: italic;

@@ -43,17 +43,29 @@ export interface CliLaunchSpec {
   /** Append `--dangerously-skip-permissions` so claude never prompts for tool
    * approval. Granted at the preset level. */
   skipPermissions?: boolean;
+  /** Skip Claude Code's WebFetch preflight. Resolved (never undefined) by
+   * resolveLaunch, which defaults it to ON. */
+  skipWebFetchPreflight?: boolean;
   /** Path to a per-session MCP config file. When set, the CLI is told to load it
    * and to allow the feed-image tool. Absent → no MCP flags (feature disabled). */
   mcpConfigPath?: string;
-  /** LLM-profile API env to re-inject as an inline `--settings` env block (SSH
-   * launches only). cc applies a settings.json `env` block ON TOP of the
-   * process env, so on a remote host whose ~/.claude settings.json carries its
-   * own ANTHROPIC_* env, the exported profile env would lose. The `--settings`
-   * CLI layer wins over every settings file, so this makes the user's chosen
-   * profile authoritative regardless of the host's settings. Never written to
-   * disk — the API key rides only in the argv for the CC process's lifetime. */
-  apiEnv?: Record<string, string>;
+  /** Settings to hand cc through `--settings`, and how to hand them over.
+   *
+   * cc applies a settings.json `env` block ON TOP of the process env, so
+   * wherever the host's ~/.claude settings.json carries its own ANTHROPIC_* env
+   * (a remote host's own config, or a local one rewritten by a provider
+   * switcher such as cc-switch), an env-only launch would lose. The
+   * `--settings` layer wins over every settings file while merging the rest,
+   * so it is what makes the user's chosen profile authoritative without
+   * disturbing the user's other settings.
+   *
+   * `payload` is the same object either way; `path` only picks the carrier.
+   * cc accepts a JSON string or a file, and the string form cannot survive the
+   * Windows cmd → claude.cmd → node chain (measured — see sessionSettings.ts),
+   * so Windows local sessions arrive with `path` set. The SSH path keeps the
+   * string form so the API key never lands on the remote host's disk.
+   * Absent, or an empty payload with no path, means "add no --settings". */
+  settings?: { payload: Record<string, unknown>; path?: string };
 }
 
 /** Adapter for a CLI surface (Claude, aider, etc.). Lets the session manager stay free of CLI-specific text.

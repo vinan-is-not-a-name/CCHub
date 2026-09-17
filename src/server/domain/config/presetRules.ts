@@ -39,6 +39,9 @@ export function buildPreset(
     condaEnv: cleanOptional(input.condaEnv),
     resume: cleanOptional(input.resume) as 'continue' | undefined,
     skipPermissions: input.skipPermissions === true || undefined,
+    // Default-ON toggle: the inverse of skipPermissions above — only an
+    // explicit opt-out is stored, and an absent value resolves to true.
+    skipWebFetchPreflight: input.skipWebFetchPreflight === false ? false : undefined,
     proxyId: cleanOptional(input.proxyId),
     effort: cleanOptional(input.effort),
     createdAt: existing?.createdAt ?? now,

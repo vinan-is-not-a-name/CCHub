@@ -2,8 +2,8 @@ import { EventEmitter } from 'events';
 import { randomUUID } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
-import { SessionState, SessionInfo, ResolvedLaunch, AnthropicEnv } from '../../shared/protocol.js';
-import { ANTHROPIC_ENV_KEYS } from '../../shared/envKeys.js';
+import { SessionState, SessionInfo, ResolvedLaunch } from '../../shared/protocol.js';
+import { SettingsProvisioner, SessionSettingsGrant, buildSettingsPayload } from '../infrastructure/settings/sessionSettings.js';
 import { adapterFor, ShellAdapter, EffectiveLaunch } from '../infrastructure/shell/shellAdapter.js';
 import { Connector, ConnectorChannel, makeConnector } from '../infrastructure/transport/connector.js';
 import { TerminalScreen } from '../infrastructure/terminal/terminalScreen.js';
@@ -41,6 +41,9 @@ export interface SessionContext {
   mcp?: SessionMcpGrant;
   /** Hook grant (settings path + optional SSH reverse tunnel) — owned by this session. */
   hook?: SessionHookGrant;
+  /** `--settings` file for a session whose transport cannot carry the inline
+   * JSON form. Undefined everywhere else — the launch inlines the payload. */
+  settings?: SessionSettingsGrant;
 }
 
 export class ManagedSession extends EventEmitter {
@@ -134,14 +137,23 @@ export class ManagedSession extends EventEmitter {
     if (ctx.launch.effort) env['CLAUDE_CODE_EFFORT_LEVEL'] = ctx.launch.effort;
     const mcpConfigPath = ctx.mcp?.configPath;
     const base: EffectiveLaunch = { ...ctx.launch, env, command: [], mcpConfigPath };
-    // SSH-only: re-inject the profile's API env as an inline --settings env
-    // block so a remote host's settings.json env cannot mask the selected
-    // provider (see CliLaunchSpec.apiEnv). The MCP env never carries API
-    // vars, so the profile vars are the only ones cchub owns here.
-    const apiEnv = ctx.launch.server.kind === 'ssh'
-      ? pickApiEnv(ctx.launch.profileEnv)
-      : undefined;
-    this.effectiveLaunch = { ...base, command: cli.buildCommand({ ...base, mcpConfigPath, apiEnv }) };
+    // Hand the profile env (and any settings-shaped launch option) to cc via
+    // --settings, on both transports. cc applies a settings.json `env` block ON
+    // TOP of the process env (measured), so any ANTHROPIC_* the host's
+    // settings.json carries silently masks the profile cchub exported. That is
+    // not a remote-only hazard — it is the reported local outage: cc-switch
+    // rewrites ~/.claude/settings.json with the active provider's env on every
+    // provider switch (its switch_normal path, which is the one taken precisely
+    // when proxy takeover is OFF), pinning every local session to that provider
+    // no matter which profile the cchub UI showed.
+    //
+    // The payload is identical everywhere; only the carrier differs. A
+    // provisioned file means this session could not take the inline JSON string
+    // (see sessionSettings.ts). The MCP env never carries API vars, so the
+    // profile vars are the only ones cchub owns here.
+    const payload = buildSettingsPayload(ctx.launch);
+    const settings = ctx.settings ? { payload, path: ctx.settings.path } : { payload };
+    this.effectiveLaunch = { ...base, command: cli.buildCommand({ ...base, mcpConfigPath, settings }) };
     this.stateMachine = new SessionStateMachine(cli, timing);
     this.screen = new TerminalScreen(cols, rows, historySize);
     this.channel = this.startChannel(this.effectiveLaunch);
@@ -310,8 +322,10 @@ export class ManagedSession extends EventEmitter {
 
   private startChannel(launch: EffectiveLaunch): ConnectorChannel {
     const compiled = this.shell.compile(launch);
-    const command = this.hook?.setupCommand ? `${this.hook.setupCommand} && ${compiled}` : compiled;
-    const channel = this.connector.spawn({ command, cwd: launch.cwd, env: launch.env, cols: this.cols, rows: this.rows, shell: this.shell, proxy: launch.proxy, hookTunnel: this.hook?.hookTunnel });
+    const base = this.hook?.setupCommand ? `${this.hook.setupCommand} && ${compiled}` : compiled;
+    const editor = launch.server.kind === 'ssh' ? sshEditorFallback(launch.server.os) : undefined;
+    const command = editor ? `${editor}; ${base}` : base;
+    const channel = this.connector.spawn({ command, cwd: launch.cwd, env: launch.env, cols: this.cols, rows: this.rows, shell: this.shell, proxy: launch.proxy, hookTunnel: this.hook?.hookTunnel, loopbackTunnel: launch.loopbackTunnel });
     this.spawnedAt = Date.now();
     channel.on('data', (data: string) => this.handleData(data));
     channel.on('exit', (code: number | null) => this.handleExit(code));
@@ -527,6 +541,10 @@ export interface SessionManagerDeps {
   mcpProvisioner?: McpProvisioner;
   /** Provisions per-session Claude Code hooks on the target host. */
   hookProvisioner?: HookProvisioner;
+  /** Writes the per-session `--settings` file. Absent → every session inlines
+   * the payload instead, which is correct on POSIX but breaks Windows local
+   * launches (see sessionSettings.ts). */
+  settingsProvisioner?: SettingsProvisioner;
 }
 
 export class SessionManager {
@@ -537,6 +555,7 @@ export class SessionManager {
   private readonly historySize: number;
   private readonly timing: typeof TIMING;
   private readonly mcpProvisioner?: McpProvisioner;
+  private readonly settingsProvisioner?: SettingsProvisioner;
   private readonly hookProvisioner?: HookProvisioner;
 
   constructor(deps: Partial<SessionManagerDeps> = {}) {
@@ -547,6 +566,7 @@ export class SessionManager {
     this.timing = deps.timing ?? TIMING;
     this.mcpProvisioner = deps.mcpProvisioner;
     this.hookProvisioner = deps.hookProvisioner;
+    this.settingsProvisioner = deps.settingsProvisioner;
   }
 
   create(launch: ResolvedLaunch, cols?: number, rows?: number): ManagedSession {
@@ -557,7 +577,16 @@ export class SessionManager {
     const id = randomUUID();
     const mcp = launch.server.kind === 'local' ? this.mcpProvisioner?.provision(id) : undefined;
     const hook = this.hookProvisioner?.provision(id, launch);
-    const ctx: SessionContext = { id, launch, mcp, hook };
+    // Local sessions take the file carrier: the JSON string form cannot survive
+    // the Windows cmd → claude.cmd → node chain (measured — see
+    // sessionSettings.ts). Nothing to say → no file, and the adapter adds no
+    // --settings at all.
+    const payload = buildSettingsPayload(launch);
+    const settings = launch.server.kind === 'local' && this.settingsProvisioner
+      && Object.keys(payload).length > 0
+      ? this.settingsProvisioner.provision(id, payload)
+      : undefined;
+    const ctx: SessionContext = { id, launch, mcp, hook, settings };
     const session = new ManagedSession(ctx, connector, shell, this.cliAdapter, cols, rows, this.historySize, this.timing);
     // Clean up the temp config only on a real, final exit. handleExit emits
     // 'exit' solely on its non-fallback branch, so a resume-fallback respawn
@@ -567,6 +596,9 @@ export class SessionManager {
     }
     if (hook && this.hookProvisioner) {
       session.once('exit', () => this.hookProvisioner!.cleanup(id));
+    }
+    if (settings && this.settingsProvisioner) {
+      session.once('exit', () => this.settingsProvisioner!.cleanup(id));
     }
     this.sessions.set(id, session);
     return session;
@@ -621,14 +653,26 @@ export class SessionManager {
   }
 }
 
-/** The ANTHROPIC_* subset of a profile env, values only — the keys cc's
- * settings env block is meant to carry. */
-function pickApiEnv(profileEnv: AnthropicEnv | undefined): Record<string, string> | undefined {
-  if (!profileEnv) return undefined;
-  const out: Record<string, string> = {};
-  for (const key of ANTHROPIC_ENV_KEYS) {
-    const value = profileEnv[key];
-    if (value) out[key] = value;
-  }
-  return out;
+/**
+ * Editor fallback prefixed to every POSIX SSH session's login shell.
+ *
+ * claude's Ctrl+G ("edit the prompt in an external editor") resolves $VISUAL
+ * then $EDITOR, and a host that sets neither leaves it with nothing to launch:
+ * it prints "Save and close editor to continue..." and waits indefinitely,
+ * with no editor on screen and no error to explain it. Measured on a lab host that
+ * which sets neither in any profile file — and a plain interactive ssh there is
+ * just as bare, so the user has no working reference to compare against.
+ *
+ * `:-` is the whole point: a host that DOES set an editor keeps its own, so
+ * this only ever fills a hole, never overrides a choice. It rides the session's
+ * own login shell and writes nothing to disk — the host is unchanged when the
+ * session ends.
+ *
+ * POSIX only. A Windows SSH target runs cmd.exe and has no `${VAR:-…}`; its
+ * editor story is a GUI app, not this. */
+export function sshEditorFallback(os: ResolvedLaunch['server']['os']): string | undefined {
+  if (os === 'windows') return undefined;
+  return 'export EDITOR="${EDITOR:-$(command -v vim || command -v vi || echo vi)}"'
+    + '; export VISUAL="${VISUAL:-$EDITOR}"';
 }
+
